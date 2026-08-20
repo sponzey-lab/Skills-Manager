@@ -1,85 +1,179 @@
-# Sponzey Skills Manager
+<p align="center">
+  <img src="media/sponzey-skills-icon.png" width="112" alt="Sponzey Skills Manager icon">
+</p>
 
-Sponzey Skills Manager is a VSCode extension for managing Agent Skills as explicit sources and applied targets.
+<h1 align="center">Sponzey Skills Manager</h1>
 
-## Core Concepts
+<p align="center">
+  Keep one clean library of Agent Skills, then use each skill exactly where you need it.
+</p>
 
-- Main Repository stores source skills only.
-- Main Repository is a source repository, not a Global Target.
-- Global Targets and Project Targets are where agent clients read applied skills.
-- Repository registration supports Codex, Claude, or all supported agent clients.
-- Existing skills are discovered from Codex `$HOME/.agents/skills` and Claude `$HOME/.claude/skills` by default.
-- Workspace skills are discovered from `.agents/skills` and `.claude/skills` for enabled clients.
-- Global Skills is a flat list that renders detected AI client SVG images to the right of each skill name. Codex/OpenAI, Claude, Gemini, GitHub Copilot, Cursor, Perplexity, Mistral, DeepSeek, Meta AI, Hugging Face, and Ollama use target-specific marks; unsupported clients share one custom generic icon. It does not render a generated aggregate icon on the left.
-- Project Skills are shown when VSCode has a folder or workspace open, and hidden for file-only windows.
-- Applied skills can be managed copies, managed symlinks, external folders, external symlinks, or broken symlinks.
-- Remove means removing an applied target entry.
-- Delete means deleting a source skill from the Main Repository.
-- Backup snapshots preserve target state without mutating the target.
+<p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=Sponzey.sponzey-skills-manager"><img src="https://img.shields.io/visual-studio-marketplace/v/Sponzey.sponzey-skills-manager?style=flat-square&label=VS%20Code%20Marketplace" alt="VS Code Marketplace version"></a>
+  <a href="https://github.com/Sponzey-com/Sponzey-Skill-Manager"><img src="https://img.shields.io/github/stars/Sponzey-com/Sponzey-Skill-Manager?style=flat-square" alt="GitHub stars"></a>
+  <img src="https://img.shields.io/badge/license-GPL--2.0-6e7781?style=flat-square" alt="GPL-2.0 license">
+</p>
 
-## Setup
+---
 
-1. Run the extension in Extension Development Host.
-2. If no Main Repository is configured, the extension creates and uses `~/SponzeySkills`.
-3. The extension initializes `skills/`, `backups/`, and `.sponzey/`.
-4. Run `Sponzey Skills: Set Main Repository` only when you want to choose a different directory.
-5. Do not select an agent global target such as `~/.agents/skills` or `~/.claude/skills`.
+Agent Skills tend to spread. One copy lives in Codex, another in Claude Code, a third is tucked inside a project—and sooner or later nobody is quite sure which one is current.
 
-## Import And Install
+Sponzey Skills Manager gives those skills a proper home inside VS Code. Your **Main Repository** keeps the originals. **Global Skills** and **Project Skills** show where those originals are actually in use. You can apply, remove, inspect, back up, and recover skills without confusing a source with one of its installed copies.
 
-- Use `Sponzey Skills: Create Skill` to create a new source skill.
-- Use `Sponzey Skills: Import Skill to Main Repository` to copy a local skill folder into the Main Repository.
-- Use `Sponzey Skills: Install Skill from URL or Path` to resolve a GitHub URL or local path and install it into the Main Repository.
-- A GitHub folder URL such as `https://github.com/owner/repository/tree/main/skills` discovers and installs every folder containing `SKILL.md` below only the selected `skills` folder.
-- A GitHub repository root URL discovers skills below the repository root. Local paths continue to import one selected skill folder with a custom name.
-- Use `Sponzey Skills: Import Skill Archive` to import a Sponzey skill archive bundle.
+## At a glance
 
-## Apply And Remove
+| Main Repository | Global Skills | Project Skills | Diagnostics |
+| --- | --- | --- | --- |
+| The source of truth | Skills available to your AI clients | Skills scoped to the open workspace | Structure, sync, dependency, and security findings |
 
-- Use `Sponzey Skills: Apply Skill to Global Target` to select a source and mode, then create a persistent Global enrollment. It applies the source to every current applyable Global target and reconciles newly registered targets later; it does not ask you to choose just one Global client.
-- Standard Codex and Claude global targets are available without persisting duplicate target settings.
-- Use `Sponzey Skills: Apply Skill to Project Target` to apply a source skill to a workspace project target.
-- Applied Global and Project rows avoid target-folder grouping and target child rows. Right-click a managed Global row and use `Remove Global Skill Enrollment` to remove that source from every enrolled Global client while preserving its Main Repository source.
-- Use `Sponzey Skills: Remove Applied Skill` to remove the applied target entry without deleting the source.
-- Use `Sponzey Skills: Delete Source Skill` to choose either managed-target cleanup or source-only deletion. Cleanup scans current Global and Project targets, removes only exact managed placements, verifies their absence, and then deletes the source. Source-only deletion stops future Global enrollment but deliberately leaves target copies in place; restart the affected client (including Codex) if it continues to show a cached deleted skill.
+- Keep the original skill separate from every place it is used.
+- Apply by symlink for instant updates or by copy for an independent snapshot.
+- Enroll a global skill once and keep it aligned with supported targets added later.
+- See Codex, Claude, and other recognized clients at a glance with client-specific marks.
+- Find drift, broken links, shadowing, unsafe instructions, and incomplete analysis before they become surprises.
+- Back up or bring an existing skill into the Main Repository without changing the live target.
 
-## Backup, Copy, Move, And Promote
+## One source, as many targets as you need
 
-- Use `Sponzey Skills: Copy Applied Skill to Main Repository` to copy an applied target skill as a source candidate.
-- Use `Sponzey Skills: Backup Applied Skill to Main Repository` to snapshot the target without mutating it.
-- Use `Sponzey Skills: Move Applied Skill to Main Repository` when explicitly moving management back to the Main Repository.
-- Use `Sponzey Skills: Promote Backup to Skill Source` to create a source from a backup snapshot.
+```text
+Main Repository
+└── code-reviewer                 ← original
+    ├── SKILL.md
+    ├── references/
+    └── scripts/
+          │
+          ├── Global · Codex      ← symlink or copy
+          ├── Global · Claude     ← symlink or copy
+          └── Project · my-app    ← symlink or copy
+```
 
-## Sync And Analysis
+**Main Repository stores source skills only.** Main Repository is a source repository, deliberately kept separate from every Global Target. A skill only becomes available to an agent after you explicitly apply it. Removing an applied skill removes that placement; it does not delete the original.
 
-- The tree read model distinguishes managed copy, managed symlink, external, and broken symlink states.
-- Sync status can classify copy drift as `In Sync`, `Source Changed`, `Target Changed`, `Both Changed`, `Missing Source`, `Missing Target`, `External`, or `Broken Symlink`.
-- Analyzer diagnostics are grouped by structure, quality, security, dependency, compatibility, and sync categories.
-- Analyzer findings distinguish verified `confirmed` behavior from non-blocking `potential` signals. A potential signal is never Critical; only correlated independent signals can require confirmation.
-- Analysis is static and bounded (2,000 files, depth 16, 1 MiB per text artifact, 32 MiB total), reports skipped artifacts as coverage gaps, and never follows analysis symlinks.
-- Critical confirmed risk blocks target writes before filesystem mutation. Analysis metadata stores sanitized relative evidence only; v1 metadata is marked stale and regenerated rather than rewritten.
+## Built for day-to-day skill work
+
+### Collect and create
+
+Create a new `SKILL.md`-based skill, import a local folder, install from a GitHub URL, or restore a Sponzey archive. Repository URLs and GitHub folder URLs can discover multiple skills beneath the selected path.
+
+### Apply with intent
+
+Apply a source globally or to the current project. Choose **Symlink** when you want source edits to appear immediately, or **Copy** when the target needs to stand on its own.
+
+Global enrollment is managed as one user decision. A skill can be applied to every eligible global target now and reconciled with newly registered targets later. Project targets remain separate and are never enrolled automatically.
+
+### Understand what is installed
+
+The sidebar distinguishes managed copies, managed symlinks, external skills, and broken links. Matching placements are shown as one readable row instead of a tree of target folders, while client marks show where the skill is available.
+
+Copy-based skills are checked for drift and can report:
+
+- In Sync
+- Source Changed
+- Target Changed
+- Both Changed
+- Missing Source or Target
+- External
+- Broken Symlink
+
+### Back up and recover
+
+Copy an applied skill into the Main Repository, make a non-destructive backup, move management back to the repository, compare snapshots, restore a target, or promote a backup into a new source.
+
+These are separate actions on purpose. A backup never modifies the live target, and a remove action never silently deletes the source.
+
+## Diagnostics that explain themselves
+
+Analysis runs locally, statically, and without executing skill code. Findings are grouped by structure, quality, security, dependency, compatibility, conflict, and sync so you can see both the problem and the next useful action.
+
+The analyzer makes an important distinction:
+
+- **Confirmed** means a concrete risky behavior was found in an executable context.
+- **Potential** means there are signals worth reviewing, but not enough evidence to call the skill unsafe.
+- **Coverage gap** means something could not be inspected; it is never presented as a clean result.
+
+A lone potential signal cannot become Critical. Only independent, correlated signals can ask for confirmation. Confirmed Critical behavior blocks a target write before the filesystem is changed.
+
+Analysis is deliberately bounded to protect the editor: up to 2,000 files, depth 16, 1 MiB per text artifact, and 32 MiB per skill. Symlinks are not followed. Stored evidence uses relative paths and sanitized summaries rather than skill bodies, secrets, raw matches, or absolute local paths.
+
+## Getting started
+
+1. Install **Sponzey Skills Manager** from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=Sponzey.sponzey-skills-manager).
+2. Open the Sponzey Skills view from the Activity Bar.
+3. Let the extension create `~/SponzeySkills`, or run **Sponzey Skills: Set Main Repository** to choose another folder.
+4. Create or import a skill into the Main Repository.
+5. Right-click the skill and apply it globally or to the current project.
+6. Open Diagnostics before applying unfamiliar skills.
+
+The repository is initialized with:
+
+```text
+~/SponzeySkills/
+├── skills/
+├── backups/
+└── .sponzey/
+```
+
+Do not choose an agent target such as `~/.agents/skills` or `~/.claude/skills` as the Main Repository. Those folders are deployment targets, not source libraries.
+
+## Client support
+
+Codex and Claude Code have built-in global and workspace discovery:
+
+| Client | Global target | Project target |
+| --- | --- | --- |
+| Codex | `~/.agents/skills` | `<workspace>/.agents/skills` |
+| Claude Code | `~/.claude/skills` | `<workspace>/.claude/skills` |
+
+Additional targets can be registered from the view. Recognized clients use their own marks; an unobtrusive generic mark is used when a client has no bundled identity.
+
+> After adding or removing a global skill, restart the affected client—or start a new session—if it keeps showing a cached skill list.
+
+## Current development status
+
+The core local workflow is implemented and covered by automated architecture, domain, use-case, adapter, integration, manifest, and build checks.
+
+| Area | Status | What is available now |
+| --- | :---: | --- |
+| Source library | ✅ | Create, rename, import, install, export, and delete source skills |
+| Global management | ✅ | Multi-target enrollment, future-target reconciliation, symlink and copy modes |
+| Project management | ✅ | Workspace-aware discovery, apply, remove, update, and mode conversion |
+| Existing skills | ✅ | External discovery plus copy, move, and backup into the Main Repository |
+| Recovery | ✅ | Snapshot listing, comparison, restore, promotion, and deletion |
+| Sync visibility | ✅ | Drift, missing targets, external placements, and broken-link reporting |
+| Safety analysis | ✅ | Bounded static inspection, confirmed/potential findings, coverage reporting, and Critical write guard |
+| Release pipeline | ✅ | Automated test/build gate, VSIX packaging, Marketplace publishing, and GitHub Release workflow |
+
+Planned follow-up work includes registry discovery, Git-backed team workflows, richer policy packs, and deeper dependency intelligence. These are future directions, not requirements for the current local skill-management workflow.
+
+## Useful commands
+
+Most actions are available from a row's context menu. They are also available from the Command Palette under `Sponzey Skills:`.
+
+| Task | Command |
+| --- | --- |
+| Choose the source library | `Sponzey Skills: Set Main Repository` |
+| Create a skill | `Sponzey Skills: Create Skill` |
+| Install from GitHub or a local path | `Sponzey Skills: Install Skill from URL or Path` |
+| Analyze every source | `Sponzey Skills: Analyze All Skills` |
+| Apply globally | `Sponzey Skills: Apply Skill to Global Target` |
+| Apply to the workspace | `Sponzey Skills: Apply Skill to Project Target` |
+| Remove a global enrollment | `Sponzey Skills: Remove Global Skill Enrollment` |
+| Refresh the sidebar | `Sponzey Skills: Refresh Skills` |
 
 ## Troubleshooting
 
-- If `code` is not available, install the VSCode shell command or run scripts with `CODE_BIN=/path/to/code`.
-- If the Main Repository is missing, the extension recreates `~/SponzeySkills` on the next command that needs a source repository.
-- Missing standard target directories are treated as empty; they do not prevent the other client from loading.
-- An unreadable target or damaged entry appears in Diagnostics while readable skills remain visible. Check the target permission or broken link and refresh.
-- External skills with the same name are grouped only when their content hashes also match. If a target-root-bounded hash cannot be read, the skills remain separate and Diagnostics explains why.
-- `$HOME/.codex/skills` is not added automatically. When explicitly registered for migration, it is discovery/copy/backup-only and is excluded from apply, remove, move, and restore target choices.
-- If a newly applied Codex global skill does not appear in another Codex instance, restart Codex or start a new Codex session so it rescans `$HOME/.agents/skills`.
-- If a newly applied Claude global skill does not appear in another Claude session, restart Claude or start a new Claude session so it rescans `$HOME/.claude/skills`.
-- If the Main Repository is invalid, run `Sponzey Skills: Set Main Repository` and choose a valid source repository path.
-- If a target path overlaps the Main Repository, choose a separate source repository path.
-- If a filesystem permission error appears, choose a repository or target directory that the current OS user can read and write, then run `Sponzey Skills: Refresh Skills`.
-- If watcher refresh is unavailable or blocked by the host environment, use `Sponzey Skills: Refresh Skills` manually.
-- If Diagnostics shows warnings or errors, open the diagnostic detail and review severity, category, recommendation, and source or target context before applying or deleting skills.
-- If a copy update is blocked, inspect sync status and provide explicit confirmation only when overwriting local target changes is intended.
-- Product Log contains minimal user-impacting operation results. Field Debug Log is for limited local troubleshooting and should not contain skill bodies or secrets.
+- **A deleted Codex or Claude skill still appears:** restart the client or begin a new session so it rescans its skill directory.
+- **A target is missing:** missing standard target folders are treated as empty. Other readable targets continue to load.
+- **Two external skills with the same name stay separate:** external placements are merged only when both their normalized names and readable content hashes match.
+- **A warning appears in Diagnostics:** open the finding to see its category, confidence, location, impact, and recommended next step.
+- **A copy cannot be updated:** inspect its sync state first. Overwriting target-side changes requires explicit confirmation.
+- **A folder cannot be read or written:** fix its local permissions, then run **Sponzey Skills: Refresh Skills**.
+- **The sidebar did not notice a filesystem change:** if the host blocked a watcher, run **Sponzey Skills: Refresh Skills** manually.
+- **The `code` command is unavailable:** install VS Code's shell command, or run the helper with `CODE_BIN=/path/to/code`.
 
-## Development
+For operational troubleshooting, **Product Log** records minimal user-impacting outcomes. **Field Debug Log** is an opt-in, short-lived diagnostic channel; it is not intended to store skill bodies, credentials, or unrestricted command output.
 
-Run:
+## Contributing and local development
 
 ```sh
 npm test
@@ -88,40 +182,38 @@ npm run check:vsix-candidate
 npm run release:gate
 ```
 
-`npm run check:vsix-candidate` checks for a local `node_modules/.bin/vsce` packaging tool without installing anything. `PackagingToolMissing` means local VSIX packaging is skipped until `@vscode/vsce` is available as a dev dependency.
-
-Use:
-
-```sh
-npm run package:vsix-candidate
-```
-
-to create a local `.vsix` candidate in `.dist/` when the local packaging tool is already installed.
-
-## GitHub Tag Release
-
-The `Release VSIX` GitHub Actions workflow runs when a version tag is pushed. The tag base must match `package.json` version with a `v` prefix.
-
-Use a release tag to build the VSIX, publish it to the VS Code Marketplace, and register it in GitHub Release. The repository must define a `VSCE_PAT` Actions secret with Azure DevOps `Marketplace: Manage` scope. For version `0.1.1`, use:
-
-```sh
-git tag v0.1.1
-git push origin v0.1.1
-```
-
-Use a build-only tag to build the VSIX without registering it in GitHub Release. For version `0.1.1`, use:
-
-```sh
-git tag v0.1.1a
-git push origin v0.1.1a
-```
-
-The workflow installs a local `@vscode/vsce` packaging tool in the GitHub runner, runs `npm run release:gate`, runs `npm run package:vsix-candidate`, and uploads the `.vsix` as a workflow artifact. Tags like `v0.1.1` publish that exact VSIX to the VS Code Marketplace using `VSCE_PAT`, then register it in the matching GitHub Release. Tags like `v0.1.1a` are build-only and skip both Marketplace publishing and GitHub Release registration. Never store the PAT in source files or workflow arguments.
-
-Use:
+To launch an Extension Development Host directly:
 
 ```sh
 scripts/run-vscode-extension-host.sh
 ```
 
-to open Extension Development Host.
+To create a local VSIX candidate when `@vscode/vsce` is installed:
+
+```sh
+npm run package:vsix-candidate
+```
+
+`npm run check:vsix-candidate` checks for the local packaging tool without installing it. A `PackagingToolMissing` result means VSIX packaging was skipped until `@vscode/vsce` is available locally.
+
+<details>
+<summary>Maintainer release notes</summary>
+
+The **Release VSIX** GitHub Actions workflow validates, packages, and publishes tagged builds. A release tag must match the version in `package.json`; for example:
+
+```sh
+git tag v0.1.5
+git push origin v0.1.5
+```
+
+That workflow publishes the VSIX to the Marketplace and attaches the same artifact to a GitHub Release. A tag with an `a` suffix is build-only and skips publishing; `v0.1.1a` is an example of that convention.
+
+</details>
+
+Issues and ideas are welcome in the [GitHub issue tracker](https://github.com/Sponzey-com/Sponzey-Skill-Manager/issues).
+
+---
+
+<p align="center">
+  <sub>Made for people who want their Agent Skills organized, understandable, and under their control.</sub>
+</p>
