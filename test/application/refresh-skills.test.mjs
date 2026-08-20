@@ -342,6 +342,23 @@ test("refreshSkills includes persisted analysis metadata in source read model an
   ]);
 });
 
+test("refreshSkills preserves v2 finding explanation and coverage without raw content", async () => {
+  const result = await refreshSkills({
+    context: { mainRepositoryPath: "/repo", globalTargets: [], projectTargets: [] },
+    skillRepository: { async scanSourceSkills() { return { ok: true, sources: [source("alpha", "/repo/skills/alpha")] }; } },
+    analysisStore: { async readAnalysisMetadata() { return { ok: true, metadata: {
+      schemaVersion: 2, skillId: "alpha", sourceHash: "source-hash-alpha", analyzedAt: "2026-07-01T00:00:00.000Z", riskLevel: "high",
+      findings: [{ code: "potential-network-transfer", findingKind: "potential", confidence: "high", impact: "high", evidence: { relativePath: "scripts/install.sh", line: 3, summary: "Safe summary" } }],
+      diagnostics: [], dependencies: [], compatibility: {}, riskDecision: { riskLevel: "high", enforcement: "confirmation-required" }, coverage: { scannedFileCount: 2, analyzedArtifactCount: 2, skipped: [] },
+    } }; } },
+    hashPort: hashPortWith({ "/repo/skills/alpha": "source-hash-alpha" }), targetStore: failIfCalledTargetStore(),
+  });
+  const skill = result.readModel.mainRepositorySkills[0];
+  assert.equal(skill.findings[0].evidence.relativePath, "scripts/install.sh");
+  assert.equal(skill.riskDecision.enforcement, "confirmation-required");
+  assert.equal(skill.analysisCoverage.scannedFileCount, 2);
+});
+
 test("refreshSkills applies repository index identity and writes refreshed index metadata", async () => {
   const writes = [];
   const result = await refreshSkills({

@@ -5,5 +5,5 @@ The domain layer owns framework-independent skill identities, enrollment state, 
 | Path | Responsibility | Boundary / Side effects |
 | --- | --- | --- |
 | `model/core.js` | Create immutable skill source, target, managed placement, and Global enrollment values. | Pure validation and normalization only. |
-| `policy/core-policies.js` | Decide risk, remove, transfer, conflict, shadowing, and repository-index policies. | Pure domain policy only. |
+| `policy/core-policies.js` | Decide apply, analysis-risk, potential acknowledgement, remove, transfer, conflict, shadowing, and repository-index policies. | Pure domain policy only; acknowledgement requires exact source/rule/evidence identity and cannot waive confirmed Critical findings. |
 | `index.js` | Export the public domain values and policies. | Public module boundary only. |

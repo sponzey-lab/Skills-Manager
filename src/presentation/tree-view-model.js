@@ -385,11 +385,21 @@ function diagnosticItem({ diagnostic, index, severity, category, sourceById }) {
 }
 
 function diagnosticDetail(diagnostic) {
-  if (typeof diagnostic.recommendation !== "string") {
-    return diagnostic.message;
+  const parts = [diagnostic.message];
+  if (diagnostic.findingKind) {
+    parts.push(`${diagnostic.findingKind} finding`);
   }
-
-  return `${diagnostic.message} Next: ${diagnostic.recommendation}`;
+  if (diagnostic.confidence || diagnostic.impact) {
+    parts.push(`Confidence: ${diagnostic.confidence ?? "unknown"}; impact: ${diagnostic.impact ?? "unknown"}`);
+  }
+  const relativePath = textOrNull(diagnostic.evidence?.relativePath);
+  if (relativePath) {
+    parts.push(`Location: ${relativePath}${Number.isInteger(diagnostic.evidence?.line) ? `:${diagnostic.evidence.line}` : ""}`);
+  }
+  if (typeof diagnostic.recommendation === "string") {
+    parts.push(`Next: ${diagnostic.recommendation}`);
+  }
+  return parts.filter(Boolean).join(" ");
 }
 
 function severityKeys(entries) {

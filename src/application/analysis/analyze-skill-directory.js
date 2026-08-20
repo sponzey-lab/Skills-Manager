@@ -1,19 +1,14 @@
 import {
   createBuiltInAnalyzerPolicyPack,
+  decideAnalysisRisk,
   suggestRemediationActions,
 } from "../../domain/index.js";
 
-const RISK_ORDER = {
-  low: 0,
-  medium: 1,
-  high: 2,
-  critical: 3,
-};
-
-export function analyzeSkillDirectory({ directoryName, files }) {
+export function analyzeSkillDirectory({ directoryName, files, artifacts, coverage }) {
   const policyPack = createBuiltInAnalyzerPolicyPack();
   const steps = ["LoadingSkillDirectory"];
-  const skillMd = files?.["SKILL.md"];
+  const analysisFiles = filesFromArtifacts({ files, artifacts });
+  const skillMd = analysisFiles["SKILL.md"];
 
   if (typeof skillMd !== "string") {
     const diagnostics = normalizePolicyDiagnostics({
@@ -51,10 +46,37 @@ export function analyzeSkillDirectory({ directoryName, files }) {
 
   steps.push("RunningDescriptionRules");
   diagnostics.push(...runDescriptionRules(parsed.manifest));
-  diagnostics.push(...runReferenceRules({ body: parsed.body, files }));
+  diagnostics.push(...runReferenceRules({ body: parsed.body, files: analysisFiles }));
 
   steps.push("RunningSecurityRules");
-  diagnostics.push(...runSecurityRules({ body: parsed.body, manifest: parsed.manifest }));
+  const potentialFindings = [];
+  diagnostics.push(
+    ...runSecurityRules({
+      body: parsed.body,
+      manifest: parsed.manifest,
+      relativePath: "SKILL.md",
+      artifactKind: "skill-manifest",
+    }),
+  );
+  for (const artifact of analysisArtifacts(artifacts)) {
+    if (artifact.relativePath === "SKILL.md") continue;
+    const artifactSecurityDiagnostics = runSecurityRules({
+      body: artifact.text,
+      manifest: {},
+      relativePath: artifact.relativePath,
+      artifactKind: artifact.artifactKind,
+    });
+    diagnostics.push(...artifactSecurityDiagnostics);
+    if (!artifactSecurityDiagnostics.some((diagnostic) => diagnostic.findingKind === "confirmed")) {
+      potentialFindings.push(
+        ...runPotentialSignals({
+          body: artifact.text,
+          relativePath: artifact.relativePath,
+          artifactKind: artifact.artifactKind,
+        }),
+      );
+    }
+  }
 
   steps.push("RunningDependencyRules");
   const dependencies = extractDependencies({ body: parsed.body, manifest: parsed.manifest });
@@ -64,11 +86,19 @@ export function analyzeSkillDirectory({ directoryName, files }) {
   diagnostics.push(...runCompatibilityRules({ body: parsed.body, manifest: parsed.manifest }));
 
   steps.push("CalculatingRisk");
-  const normalizedDiagnostics = normalizePolicyDiagnostics({
-    diagnostics,
-    policyPack,
+  const normalizedCoverage = normalizeCoverage(coverage);
+  if (normalizedCoverage.skipped.length > 0) {
+    diagnostics.push(coverageDiagnostic());
+  }
+  const riskDecision = decideAnalysisRisk({
+    confirmedDiagnostics: diagnostics,
+    potentialFindings,
   });
-  const riskLevel = aggregateRiskLevel(diagnostics);
+  diagnostics.push(...potentialFindings);
+  if (riskDecision.reachability === "correlated") {
+    diagnostics.push(potentialCorrelationDiagnostic(riskDecision));
+  }
+  const normalizedDiagnostics = normalizePolicyDiagnostics({ diagnostics, policyPack });
 
   return {
     manifest: parsed.manifest,
@@ -77,8 +107,64 @@ export function analyzeSkillDirectory({ directoryName, files }) {
     diagnostics: normalizedDiagnostics,
     policyVersion: policyPack.version,
     policyRuleCodes: policyRuleCodesFromDiagnostics(normalizedDiagnostics),
-    riskLevel,
-    steps: [...steps, "Completed"],
+    riskLevel: riskDecision.riskLevel,
+    riskDecision,
+    ...(coverage ? { coverage: normalizedCoverage } : {}),
+    steps: [
+      ...steps,
+      normalizedCoverage.skipped.length > 0 ? "CompletedWithCoverageGaps" : "Completed",
+    ],
+  };
+}
+
+function filesFromArtifacts({ files, artifacts }) {
+  if (!Array.isArray(artifacts)) {
+    return files ?? {};
+  }
+
+  return Object.fromEntries(
+    artifacts
+      .filter(
+        (artifact) =>
+          typeof artifact?.relativePath === "string" &&
+          typeof artifact?.text === "string",
+      )
+      .map((artifact) => [artifact.relativePath, artifact.text]),
+  );
+}
+
+function analysisArtifacts(artifacts) {
+  return Array.isArray(artifacts)
+    ? artifacts.filter(
+        (artifact) =>
+          typeof artifact?.relativePath === "string" &&
+          typeof artifact?.text === "string",
+      )
+    : [];
+}
+
+function normalizeCoverage(coverage) {
+  return {
+    scannedFileCount: Number.isInteger(coverage?.scannedFileCount)
+      ? coverage.scannedFileCount
+      : 0,
+    analyzedArtifactCount: Number.isInteger(coverage?.analyzedArtifactCount)
+      ? coverage.analyzedArtifactCount
+      : 0,
+    skipped: Array.isArray(coverage?.skipped)
+      ? coverage.skipped.map((item) => ({ ...item }))
+      : [],
+  };
+}
+
+function coverageDiagnostic() {
+  return {
+    code: "analysis-coverage-incomplete",
+    category: "analysis",
+    severity: "warning",
+    riskLevel: "low",
+    message: "Some skill artifacts were skipped during bounded analysis.",
+    recommendation: "Review analysis coverage before treating the result as complete.",
   };
 }
 
@@ -242,52 +328,78 @@ function runReferenceRules({ body, files }) {
   return diagnostics;
 }
 
-function runSecurityRules({ body, manifest }) {
-  const text = String(body ?? "");
+function runSecurityRules({ body, manifest, relativePath, artifactKind }) {
+  const text = securityText({ body, artifactKind });
   const diagnostics = [];
 
   if (/\brm\s+-rf\b/i.test(text)) {
-    diagnostics.push({
+    diagnostics.push(confirmedSecurityDiagnostic({
       code: "destructive-rm-rf",
-      category: "security",
       severity: "critical",
-      riskLevel: "critical",
       message: "Destructive remove command detected.",
       recommendation: "Remove destructive shell instructions or require an explicit guarded workflow.",
-    });
+      relativePath,
+      line: lineForPattern(text, /\brm\s+-rf\b/i),
+    }));
   }
 
   if (/\bcurl\b[^\n|]*\|\s*(?:sh|bash)\b/i.test(text)) {
-    diagnostics.push({
+    diagnostics.push(confirmedSecurityDiagnostic({
       code: "curl-pipe-shell",
-      category: "security",
       severity: "critical",
-      riskLevel: "critical",
       message: "Curl to shell pattern detected.",
       recommendation: "Replace curl-to-shell execution with explicit download, verification, and review steps.",
-    });
+      relativePath,
+      line: lineForPattern(text, /\bcurl\b[^\n|]*\|\s*(?:sh|bash)\b/i),
+    }));
+  }
+
+  const downloadedScript = /\b(?:curl|wget)\b[^\n]*\s-o\s+([^\s]+)/i.exec(text);
+  if (
+    downloadedScript &&
+    new RegExp(`\\b(?:sh|bash)\\s+${escapeRegExp(downloadedScript[1])}\\b`, "i").test(text)
+  ) {
+    diagnostics.push(confirmedSecurityDiagnostic({
+      code: "download-then-execute",
+      severity: "critical",
+      message: "Downloaded script is executed without a verification step.",
+      recommendation: "Require a verified checksum and explicit review before executing downloaded content.",
+      relativePath,
+      line: lineForPattern(text, /\b(?:curl|wget)\b[^\n]*\s-o\s+([^\s]+)/i),
+    }));
   }
 
   if (/\b(?:api[_-]?key|token|secret)\b[^\n]*(?:curl|fetch|http)/i.test(text)) {
-    diagnostics.push({
+    diagnostics.push(confirmedSecurityDiagnostic({
       code: "secret-exfiltration-pattern",
-      category: "security",
       severity: "critical",
-      riskLevel: "critical",
       message: "Potential secret exfiltration pattern detected.",
       recommendation: "Remove instructions that send credentials or secret-like values over the network.",
-    });
+      relativePath,
+      line: lineForPattern(text, /\b(?:api[_-]?key|token|secret)\b[^\n]*(?:curl|fetch|http)/i),
+    }));
   }
 
   if (/ignore (?:previous|all) instructions|override (?:policy|safety)|disable (?:guard|policy)/i.test(text)) {
-    diagnostics.push({
+    diagnostics.push(confirmedSecurityDiagnostic({
       code: "policy-override-pattern",
-      category: "security",
       severity: "critical",
-      riskLevel: "critical",
       message: "Policy override instruction pattern detected.",
       recommendation: "Remove policy override language from the skill instructions.",
-    });
+      relativePath,
+      line: lineForPattern(text, /ignore (?:previous|all) instructions|override (?:policy|safety)|disable (?:guard|policy)/i),
+    }));
+  }
+
+  if (/\b(?:chmod\s+-R\s+(?:777|a\+rwx)|chown\s+-R\s+(?:root|\d+))\b/i.test(text)) {
+    diagnostics.push(confirmedSecurityDiagnostic({
+      code: "unsafe-permission-change",
+      severity: "critical",
+      message: "Unsafe recursive permission or ownership change detected.",
+      recommendation: "Remove recursive world-writable permission changes and use the minimum explicit permission.",
+      relativePath,
+      line: lineForPattern(text, /\b(?:chmod\s+-R\s+(?:777|a\+rwx)|chown\s+-R\s+(?:root|\d+))\b/i),
+    }));
   }
 
   const allowedTools = String(manifest["allowed-tools"] ?? manifest.allowedTools ?? "");
@@ -303,6 +415,163 @@ function runSecurityRules({ body, manifest }) {
   }
 
   return diagnostics;
+}
+
+function securityText({ body, artifactKind }) {
+  const text = String(body ?? "");
+  if (artifactKind === "script") return text;
+  return text
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith(">"))
+    .map((line) => line.replace(/`[^`]*`/g, ""))
+    .join("\n");
+}
+
+function runPotentialSignals({ body, relativePath, artifactKind }) {
+  if (artifactKind !== "script") return [];
+  const text = securityText({ body, artifactKind });
+  const signals = [
+    potentialSignal({
+      code: "potential-credential-access",
+      signalFamily: "credential",
+      pattern: /\b(?:api[_-]?key|api[_-]?token|access[_-]?token|api[_-]?secret)\b/i,
+      summary: "Potential credential access signal detected.",
+      relativePath,
+      text,
+    }),
+    potentialSignal({
+      code: "potential-network-transfer",
+      signalFamily: "network",
+      pattern: /\b(?:curl|wget|fetch)\b[^\n]*(?:https?:\/\/|\$\{|\bURL\b)/i,
+      summary: "Potential network transfer signal detected.",
+      relativePath,
+      text,
+    }),
+    potentialSignal({
+      code: "potential-download",
+      signalFamily: "download",
+      pattern: /\b(?:curl|wget)\b[^\n]*(?:https?:\/\/)/i,
+      summary: "Potential remote download signal detected.",
+      relativePath,
+      text,
+    }),
+    potentialSignal({
+      code: "potential-execution",
+      signalFamily: "execution",
+      pattern: /\b(?:sh|bash|zsh|node|python(?:3)?)\s+(?:\$\{|\/|\.\/)/i,
+      summary: "Potential local execution signal detected.",
+      relativePath,
+      text,
+    }),
+    potentialSignal({
+      code: "potential-broad-file-access",
+      signalFamily: "broad-file-access",
+      pattern: /(?:\$HOME|~\/|\/\*|%USERPROFILE%)/i,
+      summary: "Potential broad file access signal detected.",
+      relativePath,
+      text,
+    }),
+    potentialSignal({
+      code: "potential-destructive-intent",
+      signalFamily: "destructive-intent",
+      pattern: /\b(?:delete|remove|wipe)\b/i,
+      summary: "Potential destructive intent signal detected.",
+      relativePath,
+      text,
+    }),
+  ];
+
+  return signals.filter(Boolean);
+}
+
+function potentialSignal({
+  code,
+  signalFamily,
+  pattern,
+  summary,
+  relativePath,
+  text,
+}) {
+  const line = lineForPattern(text, pattern);
+  if (!pattern.test(text)) return null;
+
+  return {
+    code,
+    category: "security",
+    severity: "warning",
+    riskLevel: "medium",
+    findingKind: "potential",
+    confidence: "low",
+    impact: "high",
+    reachability: "unconfirmed",
+    signalFamily,
+    message: summary,
+    recommendation: "Review this signal with related behavior before applying the skill.",
+    evidence: {
+      relativePath,
+      line,
+      summary: "Matched a non-blocking potential-risk signal.",
+    },
+    evidenceFingerprint: `${code}:${relativePath}:${line}`,
+    provenance: "builtin-policy-v1",
+  };
+}
+
+function potentialCorrelationDiagnostic(riskDecision) {
+  return {
+    code: "potential-risk-correlation",
+    category: "security",
+    severity: "high",
+    riskLevel: "high",
+    findingKind: "potential",
+    confidence: riskDecision.confidence,
+    impact: riskDecision.impact,
+    reachability: riskDecision.reachability,
+    signalFamilies: riskDecision.correlatedSignalFamilies,
+    message: "Independent potential-risk signals correlate and require confirmation.",
+    recommendation: "Review the correlated behavior and explicitly confirm before applying.",
+    provenance: "builtin-policy-v1",
+  };
+}
+
+function confirmedSecurityDiagnostic({
+  code,
+  severity,
+  message,
+  recommendation,
+  relativePath,
+  line,
+}) {
+  return {
+    code,
+    category: "security",
+    severity,
+    riskLevel: severity,
+    message,
+    recommendation,
+    ...(relativePath
+      ? {
+          findingKind: "confirmed",
+          confidence: "high",
+          impact: severity,
+          evidence: {
+            relativePath,
+            line,
+            summary: "Matched a verified security rule.",
+          },
+          provenance: "builtin-policy-v1",
+        }
+      : {}),
+  };
+}
+
+function lineForPattern(text, pattern) {
+  const match = pattern.exec(text);
+  return match ? text.slice(0, match.index).split("\n").length : 1;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function extractDependencies({ body, manifest }) {
@@ -382,19 +651,6 @@ function runCompatibilityRules({ body, manifest }) {
   }
 
   return diagnostics;
-}
-
-function aggregateRiskLevel(diagnostics) {
-  let current = "low";
-
-  for (const diagnostic of diagnostics) {
-    const riskLevel = diagnostic.riskLevel ?? "low";
-    if (RISK_ORDER[riskLevel] > RISK_ORDER[current]) {
-      current = riskLevel;
-    }
-  }
-
-  return current;
 }
 
 function normalizePolicyDiagnostics({ diagnostics, policyPack }) {

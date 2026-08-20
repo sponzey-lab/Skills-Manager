@@ -4,6 +4,8 @@ export {
   removeAppliedSkill,
 } from "./apply/apply-use-cases.js";
 export { analyzeSkillDirectory } from "./analysis/analyze-skill-directory.js";
+export { acknowledgePotentialFinding } from "./analysis/acknowledge-potential-finding.js";
+export { transitionAnalysisBatch } from "./analysis/analysis-batch-state-machine.js";
 export { createRepositorySkillAnalyzer } from "./analysis/repository-skill-analyzer.js";
 export { buildRuntimeContext, createRuntimeContext } from "./config/runtime-context-builder.js";
 export { evaluateDiagnosticRemediationActionTransition } from "./diagnostics/remediation-action-state-machine.js";

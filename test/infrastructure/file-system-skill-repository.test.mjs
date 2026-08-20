@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -234,6 +234,88 @@ test("readSourceSkillFiles returns source files keyed by relative paths", async 
       "references/details.md": "reference body",
     },
   });
+});
+
+test("readSourceSkillArtifacts enforces analysis budgets without following links", async () => {
+  const repositoryPath = await createTempPath("ssm-repo-analysis-artifacts-");
+  const outsidePath = await createTempPath("ssm-repo-analysis-outside-");
+  const repository = new FileSystemSkillRepository();
+  await repository.initializeRepository({ repositoryPath });
+  const sourcePath = path.join(repositoryPath, "skills", "reader");
+  await mkdir(path.join(sourcePath, "scripts"), { recursive: true });
+  await writeFile(path.join(sourcePath, "SKILL.md"), "safe skill");
+  await writeFile(path.join(sourcePath, "scripts", "large.sh"), "x".repeat(32));
+  await writeFile(path.join(sourcePath, "scripts", "binary.bin"), Buffer.from([0, 1, 2]));
+  await writeFile(path.join(outsidePath, "outside.md"), "outside");
+  await symlink(outsidePath, path.join(sourcePath, "linked-outside"));
+
+  const result = await repository.readSourceSkillArtifacts({
+    sourcePath,
+    budget: {
+      maxFiles: 10,
+      maxDepth: 4,
+      maxTextFileBytes: 16,
+      maxTotalTextBytes: 64,
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.artifacts.map((artifact) => artifact.relativePath),
+    ["SKILL.md"],
+  );
+  assert.deepEqual(result.coverage.skipped, [
+    {
+      code: "analysis-artifact-symlink-skipped",
+      relativePath: "linked-outside",
+    },
+    {
+      code: "analysis-artifact-binary-skipped",
+      relativePath: "scripts/binary.bin",
+    },
+    {
+      code: "analysis-artifact-file-limit-skipped",
+      relativePath: "scripts/large.sh",
+      sizeBytes: 32,
+    },
+  ]);
+});
+
+test("readSourceSkillArtifacts reports encoding, depth, and count coverage gaps", async () => {
+  const repositoryPath = await createTempPath("ssm-repo-analysis-coverage-");
+  const repository = new FileSystemSkillRepository();
+  await repository.initializeRepository({ repositoryPath });
+  const sourcePath = path.join(repositoryPath, "skills", "reader");
+  await mkdir(path.join(sourcePath, "nested", "deeper"), { recursive: true });
+  await writeFile(path.join(sourcePath, "SKILL.md"), "safe skill");
+  await writeFile(path.join(sourcePath, "broken.txt"), Buffer.from([0xc3, 0x28]));
+  await writeFile(path.join(sourcePath, "nested", "deeper", "hidden.md"), "hidden");
+
+  const result = await repository.readSourceSkillArtifacts({
+    sourcePath,
+    budget: {
+      maxFiles: 1,
+      maxDepth: 1,
+      maxTextFileBytes: 64,
+      maxTotalTextBytes: 64,
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.coverage.skipped, [
+    {
+      code: "analysis-artifact-invalid-encoding-skipped",
+      relativePath: "broken.txt",
+    },
+    {
+      code: "analysis-artifact-depth-limit-skipped",
+      relativePath: "nested/deeper",
+    },
+    {
+      code: "analysis-artifact-count-limit-skipped",
+      relativePath: "SKILL.md",
+    },
+  ]);
 });
 
 test("copyTargetSkillToMainRepository copies target skill into skills without overwrite", async () => {

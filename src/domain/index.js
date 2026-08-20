@@ -9,6 +9,8 @@ export {
 } from "./model/core.js";
 export {
   decideApplyConflictPolicy,
+  decideAnalysisRisk,
+  decidePotentialAcknowledgement,
   calculateSyncStatus,
   decideRemovePolicy,
   decideRiskPolicy,

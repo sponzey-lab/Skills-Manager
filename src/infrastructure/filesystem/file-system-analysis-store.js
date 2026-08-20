@@ -1,9 +1,9 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { normalizePath } from "../../domain/index.js";
 
-const ANALYSIS_SCHEMA_VERSION = 1;
+const ANALYSIS_SCHEMA_VERSION = 2;
 
 export class FileSystemAnalysisStore {
   async writeAnalysisMetadata({ repositoryPath, metadata }) {
@@ -19,7 +19,9 @@ export class FileSystemAnalysisStore {
         analysisDirectory,
         `${encodeMetadataFileName(metadata.skillId)}.json`,
       );
-      await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`);
+      const temporaryPath = `${metadataPath}.${process.pid}.tmp`;
+      await writeFile(temporaryPath, `${JSON.stringify(metadata, null, 2)}\n`);
+      await rename(temporaryPath, metadataPath);
 
       return {
         ok: true,
@@ -39,6 +41,9 @@ export class FileSystemAnalysisStore {
         `${encodeMetadataFileName(skillId)}.json`,
       );
       const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+      if (metadata?.schemaVersion === 1) {
+        return staleMetadataVersion();
+      }
       const validation = validateAnalysisMetadata(metadata);
       if (!validation.ok) {
         return validation;
@@ -74,8 +79,7 @@ export class FileSystemAnalysisStore {
 
 function validateAnalysisMetadata(metadata) {
   if (
-    metadata?.schemaVersion !== undefined &&
-    metadata.schemaVersion !== ANALYSIS_SCHEMA_VERSION
+    metadata?.schemaVersion !== ANALYSIS_SCHEMA_VERSION
   ) {
     return {
       ok: false,
@@ -95,6 +99,12 @@ function validateAnalysisMetadata(metadata) {
     hasText(metadata?.sourceHash) &&
     hasText(metadata?.analyzedAt) &&
     hasText(metadata?.riskLevel) &&
+    hasText(metadata?.rulePackVersion) &&
+    metadata?.riskDecision &&
+    typeof metadata.riskDecision === "object" &&
+    Array.isArray(metadata?.findings) &&
+    metadata?.coverage &&
+    typeof metadata.coverage === "object" &&
     Array.isArray(metadata?.diagnostics) &&
     Array.isArray(metadata?.dependencies) &&
     metadata?.compatibility &&
@@ -112,6 +122,19 @@ function validateAnalysisMetadata(metadata) {
   }
 
   return { ok: true };
+}
+
+function staleMetadataVersion() {
+  return {
+    ok: false,
+    error: {
+      code: "analysis-metadata-stale-version",
+      severity: "warning",
+      category: "analysis",
+      message: "Analysis metadata must be regenerated with the current analyzer schema.",
+      recommendation: "Run Analyze All Skills again.",
+    },
+  };
 }
 
 function encodeMetadataFileName(skillId) {

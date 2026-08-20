@@ -1,4 +1,5 @@
 import { confirmationRequiredDiagnostic } from "../confirmation/confirmation-diagnostics.js";
+import { transitionAnalysisBatch } from "../analysis/analysis-batch-state-machine.js";
 import { createAppliedSkillPlacement, createGlobalSkillEnrollment } from "../../domain/index.js";
 
 export async function getSkillDetail({ input, skillRepository, targetStore }) {
@@ -265,6 +266,7 @@ export async function analyzeAllSkills({
   skillRepository,
   analysisStore = null,
   hashPort = null,
+  cancellation = null,
   clock = () => new Date().toISOString(),
 }) {
   const sourceResult = await skillRepository.scanSourceSkills({
@@ -284,12 +286,23 @@ export async function analyzeAllSkills({
   const metadataWriteEnabled =
     typeof analysisStore?.writeAnalysisMetadata === "function";
   const hashingEnabled = typeof hashPort?.hashDirectory === "function";
+  let batchState = transitionAnalysisBatch("Idle", "Start").state;
+  batchState = transitionAnalysisBatch(batchState, "SourcesFound").state;
 
   for (const source of sourceResult.sources) {
-    const sourceHash = hashingEnabled
-      ? await hashSourceForAnalysis({ source, hashPort })
-      : null;
-    const analysis = await analyzer.analyzeSourceSkill({ source });
+    if (cancellation?.isCancelled?.()) {
+      return completedAnalysisBatch({ summaries, diagnostics, events, state: "Cancelled", cancelled: true, hashingEnabled, metadataWriteEnabled });
+    }
+    let sourceHash;
+    let analysis;
+    try {
+      sourceHash = hashingEnabled ? await hashSourceForAnalysis({ source, hashPort }) : null;
+      analysis = await analyzer.analyzeSourceSkill({ source });
+    } catch {
+      diagnostics.push({ code: "analysis-source-failed", severity: "error", message: "One skill could not be analyzed.", sourceId: source.id });
+      batchState = transitionAnalysisBatch(batchState, "SourceFailed").state;
+      continue;
+    }
     const sourceDiagnostics = (analysis.diagnostics ?? []).map((diagnostic) => ({
       ...diagnostic,
       sourceId: source.id,
@@ -302,19 +315,37 @@ export async function analyzeAllSkills({
       ...(sourceHash ? { sourceHash } : {}),
     });
     diagnostics.push(...sourceDiagnostics);
+    batchState = transitionAnalysisBatch(batchState, "SourceCompleted").state;
 
-    if (metadataWriteEnabled) {
+    if (metadataWriteEnabled && sourceHash) {
+      const persistedFindings = sanitizeAnalysisFindings(sourceDiagnostics);
       const writeResult = await analysisStore.writeAnalysisMetadata({
         repositoryPath: context.mainRepositoryPath,
         metadata: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           analyzerVersion: analyzer?.version ?? "unknown",
           skillId: source.id,
           skillName: source.name,
           sourceHash,
           analyzedAt: clock(),
           riskLevel: analysis.riskLevel,
-          diagnostics: sourceDiagnostics,
+          diagnostics: persistedFindings,
+          findings: persistedFindings,
+          rulePackVersion: analysis.policyVersion ?? analyzer?.version ?? "unknown",
+          riskDecision: analysis.riskDecision ?? {
+            riskLevel: analysis.riskLevel ?? "low",
+            enforcement: "allow",
+            confidence: "unknown",
+            impact: analysis.riskLevel ?? "low",
+            reachability: "unknown",
+            escalationReason: "legacy-analysis-result",
+            correlatedSignalFamilies: [],
+          },
+          coverage: analysis.coverage ?? {
+            scannedFileCount: 0,
+            analyzedArtifactCount: 0,
+            skipped: [],
+          },
           ...(analysis.policyVersion
             ? { policyVersion: analysis.policyVersion }
             : {}),
@@ -333,6 +364,7 @@ export async function analyzeAllSkills({
       });
 
       if (!writeResult.ok) {
+        batchState = transitionAnalysisBatch(batchState, "SourceFailed").state;
         diagnostics.push({
           ...(writeResult.error ?? {
             code: "analysis-metadata-write-failed",
@@ -351,28 +383,18 @@ export async function analyzeAllSkills({
     }
   }
 
+  return completedAnalysisBatch({ summaries, diagnostics, events, state: transitionAnalysisBatch(batchState, "Finish").state, hashingEnabled, metadataWriteEnabled });
+}
+
+function completedAnalysisBatch({ summaries, diagnostics, events, state, cancelled = false, hashingEnabled, metadataWriteEnabled }) {
   return {
     ok: true,
     summaries,
     diagnostics,
-    events: [
-      ...events,
-      {
-        level: "ProductLog",
-        code: "skill.analysis.completed",
-        skillCount: summaries.length,
-        diagnosticCount: diagnostics.length,
-      },
-    ],
-    steps: [
-      "LoadingSources",
-      "ReadingSkillFiles",
-      ...(hashingEnabled ? ["HashingSources"] : []),
-      "RunningRules",
-      "AggregatingDiagnostics",
-      ...(metadataWriteEnabled ? ["WritingAnalysisMetadata"] : []),
-      "Completed",
-    ],
+    cancelled,
+    batchState: state,
+    events: [...events, { level: "ProductLog", code: cancelled ? "skill.analysis.cancelled" : "skill.analysis.completed", skillCount: summaries.length, diagnosticCount: diagnostics.length }],
+    steps: ["LoadingSources", "ReadingSkillFiles", ...(hashingEnabled ? ["HashingSources"] : []), "RunningRules", "AggregatingDiagnostics", ...(metadataWriteEnabled ? ["WritingAnalysisMetadata"] : []), state],
   };
 }
 
@@ -1436,6 +1458,51 @@ function sourceAppliedTargetCount(source) {
   }
 
   return 0;
+}
+
+function sanitizeAnalysisFindings(findings) {
+  return (findings ?? []).map((finding) => {
+    const evidence = finding?.evidence;
+    return withoutUndefined({
+      code: finding?.code,
+      policyRuleCode: finding?.policyRuleCode,
+      policyVersion: finding?.policyVersion,
+      category: finding?.category,
+      severity: finding?.severity,
+      riskLevel: finding?.riskLevel,
+      findingKind: finding?.findingKind,
+      confidence: finding?.confidence,
+      impact: finding?.impact,
+      reachability: finding?.reachability,
+      message: finding?.message,
+      recommendation: finding?.recommendation,
+      provenance: finding?.provenance,
+      sourceId: finding?.sourceId,
+      allowedActions: finding?.allowedActions,
+      blockedActions: finding?.blockedActions,
+      ...(evidence && {
+        evidence: {
+          relativePath: relativePathOnly(evidence.relativePath),
+          line: Number.isInteger(evidence.line) ? evidence.line : undefined,
+          summary: evidence.summary,
+        },
+      }),
+    });
+  });
+}
+
+function relativePathOnly(value) {
+  const text = String(value ?? "").replace(/\\/g, "/");
+  if (!text || text.startsWith("/") || /^[A-Za-z]:\//.test(text) || text.includes("..")) {
+    return undefined;
+  }
+  return text;
+}
+
+function withoutUndefined(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, candidate]) => candidate !== undefined),
+  );
 }
 
 function policyRuleCodesForAnalysis({ analysis, diagnostics }) {

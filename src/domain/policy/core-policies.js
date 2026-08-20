@@ -93,6 +93,13 @@ const BUILT_IN_ANALYZER_POLICY_RULES = Object.freeze(
       recommendation: "Remove policy override language from the skill instructions.",
     }),
     analyzerPolicyRule({
+      code: "unsafe-permission-change",
+      category: "security",
+      severity: "critical",
+      riskLevel: "critical",
+      recommendation: "Remove recursive world-writable permission changes and use the minimum explicit permission.",
+    }),
+    analyzerPolicyRule({
       code: "broad-allowed-tools",
       category: "dependency",
       severity: "medium",
@@ -283,6 +290,105 @@ export function decideRiskPolicy({
     severity: riskLevel ?? "low",
     message: "Risk level is allowed by domain policy.",
   };
+}
+
+export function decideAnalysisRisk({
+  confirmedDiagnostics = [],
+  potentialFindings = [],
+} = {}) {
+  const confirmedRiskLevel = highestDiagnosticRiskLevel(confirmedDiagnostics);
+  if (confirmedRiskLevel === "critical") {
+    return analysisRiskDecision({
+      riskLevel: "critical",
+      enforcement: "blocked",
+      confidence: "high",
+      impact: "critical",
+      reachability: "direct",
+      escalationReason: "confirmed-critical-finding",
+    });
+  }
+
+  if (confirmedRiskLevel === "high") {
+    return analysisRiskDecision({
+      riskLevel: "high",
+      enforcement: "confirmation-required",
+      confidence: "high",
+      impact: "high",
+      reachability: "direct",
+      escalationReason: "confirmed-high-finding",
+    });
+  }
+
+  const correlation = potentialCorrelation(potentialFindings);
+  if (correlation) {
+    return analysisRiskDecision({
+      riskLevel: "high",
+      enforcement: "confirmation-required",
+      confidence: "high",
+      impact: "high",
+      reachability: "correlated",
+      escalationReason: correlation.reason,
+      correlatedSignalFamilies: correlation.families,
+    });
+  }
+
+  if (potentialFindings.length > 0) {
+    return analysisRiskDecision({
+      riskLevel: "medium",
+      enforcement: "allow",
+      confidence: "low",
+      impact: "high",
+      reachability: "unconfirmed",
+      escalationReason: "isolated-potential-signal",
+    });
+  }
+
+  return analysisRiskDecision({
+    riskLevel: confirmedRiskLevel,
+    enforcement: "allow",
+    confidence: confirmedRiskLevel === "medium" ? "medium" : "high",
+    impact: confirmedRiskLevel,
+    reachability: "direct",
+    escalationReason: "no-potential-escalation",
+  });
+}
+
+export function decidePotentialAcknowledgement({
+  finding,
+  acknowledgement,
+  sourceHash,
+} = {}) {
+  if (
+    finding?.findingKind === "confirmed" &&
+    diagnosticRiskLevel(finding) === "critical"
+  ) {
+    return acknowledgementDecision({
+      allow: false,
+      code: "confirmed-critical-acknowledgement-forbidden",
+    });
+  }
+
+  const ruleCode = String(finding?.policyRuleCode ?? finding?.code ?? "").trim();
+  const fingerprint = String(finding?.evidenceFingerprint ?? "").trim();
+  if (
+    finding?.findingKind !== "potential" ||
+    !hasText(sourceHash) ||
+    !hasText(ruleCode) ||
+    !hasText(fingerprint) ||
+    acknowledgement?.sourceHash !== sourceHash ||
+    acknowledgement?.ruleCode !== ruleCode ||
+    acknowledgement?.evidenceFingerprint !== fingerprint
+  ) {
+    return acknowledgementDecision({
+      allow: false,
+      code: "potential-acknowledgement-stale",
+    });
+  }
+
+  return acknowledgementDecision({
+    allow: true,
+    code: "potential-acknowledgement-accepted",
+  });
 }
 
 export function suggestRemediationActions({ diagnostic }) {
@@ -707,6 +813,68 @@ function diagnosticRiskLevel(diagnostic) {
   }
 
   return "low";
+}
+
+function highestDiagnosticRiskLevel(diagnostics) {
+  const riskOrder = { low: 0, medium: 1, high: 2, critical: 3 };
+  return (diagnostics ?? []).reduce((highest, diagnostic) => {
+    const candidate = diagnosticRiskLevel(diagnostic);
+    return riskOrder[candidate] > riskOrder[highest] ? candidate : highest;
+  }, "low");
+}
+
+function potentialCorrelation(potentialFindings) {
+  const families = new Set(
+    (potentialFindings ?? [])
+      .map((finding) => String(finding?.signalFamily ?? "").trim())
+      .filter(Boolean),
+  );
+  const correlations = [
+    {
+      families: ["credential", "network"],
+      reason: "credential-network-correlation",
+    },
+    {
+      families: ["download", "execution"],
+      reason: "download-execution-correlation",
+    },
+    {
+      families: ["broad-file-access", "destructive-intent"],
+      reason: "broad-file-destructive-correlation",
+    },
+  ];
+
+  return correlations.find((correlation) =>
+    correlation.families.every((family) => families.has(family)),
+  );
+}
+
+function analysisRiskDecision({
+  riskLevel,
+  enforcement,
+  confidence,
+  impact,
+  reachability,
+  escalationReason,
+  correlatedSignalFamilies = [],
+}) {
+  return Object.freeze({
+    riskLevel,
+    enforcement,
+    confidence,
+    impact,
+    reachability,
+    escalationReason,
+    correlatedSignalFamilies: Object.freeze([...correlatedSignalFamilies]),
+  });
+}
+
+function acknowledgementDecision({ allow, code }) {
+  return Object.freeze({
+    allow,
+    code,
+    severity: allow ? "info" : "warning",
+  });
 }
 
 function mainRepositoryDiagnostic(code) {

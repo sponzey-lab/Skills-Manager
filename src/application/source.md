@@ -5,7 +5,8 @@ The application layer composes domain policies through injected ports and return
 | Path | Responsibility | Boundary / Side effects |
 | --- | --- | --- |
 | `apply/` | Apply a source skill to one validated target. | Calls analysis and target-store ports. |
-| `analysis/` | Analyze source directories and repository skills. | Calls analysis and persistence ports. |
+| `analysis/` | Analyze normalized, bounded source artifacts and repository skills with versioned confirmed and potential findings. | Calls analysis and persistence ports; emits only sanitized relative evidence, keeps isolated script signals non-blocking, requires correlation before high-risk confirmation, records acknowledgements only after domain validation, and detects executable unsafe recursive permission changes. |
+| `analysis/analysis-batch-state-machine.js` | Define analysis batch lifecycle transitions. | Pure application state machine for completed, partial, failed, and cancelled analysis. |
 | `config/` | Build validated runtime context values. | Converts startup settings at the application boundary. |
 | `confirmation/` | Build confirmation diagnostics and inputs. | Pure application result helpers. |
 | `diagnostics/` | Model diagnostic remediation transitions. | Pure state-machine logic. |

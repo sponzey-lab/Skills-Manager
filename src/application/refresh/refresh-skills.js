@@ -490,6 +490,9 @@ function applyAnalysisSummary({ skill, analysis, analysisStatus }) {
     skill.lastAnalyzedAt = analysis.lastAnalyzedAt;
     skill.analysisStatus = analysis.analysisStatus;
     skill.diagnostics = analysis.diagnostics;
+    if (analysis.findings) skill.findings = analysis.findings;
+    if (analysis.riskDecision) skill.riskDecision = analysis.riskDecision;
+    if (analysis.coverage) skill.analysisCoverage = analysis.coverage;
     skill.dependencies = analysis.dependencies;
     skill.compatibility = analysis.compatibility;
     if (analysis.analysisStatus === "stale") {
@@ -565,7 +568,7 @@ async function loadAnalysisMetadata({
         metadata: result.metadata,
         currentSourceHash,
       });
-      const sourceDiagnostics = (result.metadata.diagnostics ?? []).map(
+      const sourceDiagnostics = (result.metadata.findings ?? result.metadata.diagnostics ?? []).map(
         (diagnostic) => diagnosticWithSource({ diagnostic, source }),
       );
 
@@ -575,6 +578,11 @@ async function loadAnalysisMetadata({
         lastAnalyzedSourceHash: result.metadata.sourceHash,
         analysisStatus,
         diagnostics: sourceDiagnostics,
+        ...(Array.isArray(result.metadata.findings)
+          ? { findings: sourceDiagnostics }
+          : {}),
+        riskDecision: result.metadata.riskDecision,
+        coverage: result.metadata.coverage,
         dependencies: [...(result.metadata.dependencies ?? [])],
         compatibility: { ...(result.metadata.compatibility ?? {}) },
       });
@@ -582,7 +590,10 @@ async function loadAnalysisMetadata({
       continue;
     }
 
-    analysisStatusBySourceId.set(source.id, "unknown");
+    analysisStatusBySourceId.set(
+      source.id,
+      result.error?.code === "analysis-metadata-stale-version" ? "stale" : "unknown",
+    );
     if (result.error?.code !== "analysis-metadata-not-found") {
       diagnostics.push(
         diagnosticWithSource({

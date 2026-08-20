@@ -70,9 +70,11 @@
 - [ ] Analyze All Skills가 total diagnostics와 highest severity를 요약 notification으로 표시한다.
 - [ ] Analyze All Skills가 Diagnostics view를 갱신한다.
 - [ ] Diagnostics view가 diagnostic code, severity, category, source 또는 target context를 표시한다.
+- [ ] confirmed/potential finding, confidence, impact, relative evidence location, coverage gap, stale analysis state를 구분해 표시한다.
 - [ ] Built-In Analyzer Policy Pack이 policy code, recommendation, dependency category, analyzer version을 보고한다.
 - [ ] Diagnostics가 external dependencies, security risks, compatibility warnings, malformed structure, sync issues를 설명한다.
 - [ ] Diagnostics는 `SKILL.md` body 전체, secret, raw matched secret-like value를 노출하지 않는다.
+- [ ] potential 단일 finding은 target write를 차단하지 않고, confirmed Critical만 차단하며 correlated High는 명시 확인을 요구한다.
 - [ ] Diagnostic detail 또는 Open SKILL.md가 현재 VSCode window에서 열린다.
 - [ ] source skill이 변경되면 watcher refresh 이후 stale analysis로 식별된다.
 

@@ -10,6 +10,8 @@ import {
   calculateSyncStatus,
   createBuiltInAnalyzerPolicyPack,
   decideApplyConflictPolicy,
+  decideAnalysisRisk,
+  decidePotentialAcknowledgement,
   decideRemovePolicy,
   decideRiskPolicy,
   decideTransferPolicy,
@@ -279,6 +281,93 @@ test("risk policy blocks critical risk and requires confirmation for high risk",
   assert.equal(
     decideRiskPolicy({ riskLevel: "low", confirmationProvided: false }).allow,
     true,
+  );
+});
+
+test("analysis risk keeps isolated potential signals non-blocking and escalates only correlated families", () => {
+  const isolated = decideAnalysisRisk({
+    confirmedDiagnostics: [],
+    potentialFindings: [
+      { signalFamily: "credential", code: "potential-credential-access" },
+    ],
+  });
+
+  assert.deepEqual(isolated, {
+    riskLevel: "medium",
+    enforcement: "allow",
+    confidence: "low",
+    impact: "high",
+    reachability: "unconfirmed",
+    escalationReason: "isolated-potential-signal",
+    correlatedSignalFamilies: [],
+  });
+
+  const correlated = decideAnalysisRisk({
+    confirmedDiagnostics: [],
+    potentialFindings: [
+      { signalFamily: "credential", code: "potential-credential-access" },
+      { signalFamily: "network", code: "potential-network-transfer" },
+      { signalFamily: "credential", code: "potential-credential-access" },
+    ],
+  });
+
+  assert.deepEqual(correlated, {
+    riskLevel: "high",
+    enforcement: "confirmation-required",
+    confidence: "high",
+    impact: "high",
+    reachability: "correlated",
+    escalationReason: "credential-network-correlation",
+    correlatedSignalFamilies: ["credential", "network"],
+  });
+
+  const confirmedCritical = decideAnalysisRisk({
+    confirmedDiagnostics: [{ findingKind: "confirmed", riskLevel: "critical" }],
+    potentialFindings: [
+      { signalFamily: "credential", code: "potential-credential-access" },
+      { signalFamily: "network", code: "potential-network-transfer" },
+    ],
+  });
+
+  assert.equal(confirmedCritical.riskLevel, "critical");
+  assert.equal(confirmedCritical.enforcement, "blocked");
+  assert.equal(confirmedCritical.escalationReason, "confirmed-critical-finding");
+});
+
+test("potential acknowledgement requires the exact safe finding identity", () => {
+  const finding = {
+    findingKind: "potential",
+    riskLevel: "high",
+    policyRuleCode: "potential-credential-access",
+    evidenceFingerprint: "evidence-1",
+  };
+  assert.equal(
+    decidePotentialAcknowledgement({
+      finding,
+      acknowledgement: {
+        sourceHash: "source-1",
+        ruleCode: "potential-credential-access",
+        evidenceFingerprint: "evidence-1",
+      },
+      sourceHash: "source-1",
+    }).allow,
+    true,
+  );
+  assert.equal(
+    decidePotentialAcknowledgement({
+      finding,
+      acknowledgement: { sourceHash: "changed", ruleCode: "potential-credential-access", evidenceFingerprint: "evidence-1" },
+      sourceHash: "source-1",
+    }).code,
+    "potential-acknowledgement-stale",
+  );
+  assert.equal(
+    decidePotentialAcknowledgement({
+      finding: { ...finding, findingKind: "confirmed", riskLevel: "critical" },
+      acknowledgement: { sourceHash: "source-1", ruleCode: "potential-credential-access", evidenceFingerprint: "evidence-1" },
+      sourceHash: "source-1",
+    }).code,
+    "confirmed-critical-acknowledgement-forbidden",
   );
 });
 

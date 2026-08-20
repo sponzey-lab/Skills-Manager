@@ -348,13 +348,24 @@ test("analyzeAllSkills writes repository analysis metadata for every source", as
     {
       repositoryPath: "/repo",
       metadata: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         analyzerVersion: "test-analyzer",
         skillId: "alpha",
         skillName: "alpha",
         sourceHash: "source-hash-alpha",
         analyzedAt: "2026-07-01T00:00:00.000Z",
         riskLevel: "medium",
+        rulePackVersion: "builtin-policy-v1",
+        riskDecision: {
+          riskLevel: "medium",
+          enforcement: "allow",
+          confidence: "unknown",
+          impact: "medium",
+          reachability: "unknown",
+          escalationReason: "legacy-analysis-result",
+          correlatedSignalFamilies: [],
+        },
+        coverage: { scannedFileCount: 0, analyzedArtifactCount: 0, skipped: [] },
         diagnostics: [
           {
             code: "external-dependencies-detected",
@@ -378,6 +389,22 @@ test("analyzeAllSkills writes repository analysis metadata for every source", as
                 requiresConfirmation: false,
                 safety: "safe",
               },
+            ],
+            blockedActions: [],
+            sourceId: "alpha",
+          },
+        ],
+        findings: [
+          {
+            code: "external-dependencies-detected",
+            policyRuleCode: "external-dependencies-detected",
+            policyVersion: "builtin-policy-v1",
+            severity: "warning",
+            category: "dependency",
+            recommendation: "Review external dependencies.",
+            allowedActions: [
+              { code: "open-skill-md", sideEffect: "open-file", mutatesTarget: false, requiresConfirmation: false, safety: "safe" },
+              { code: "analyze-again", sideEffect: "analysis-refresh", mutatesTarget: false, requiresConfirmation: false, safety: "safe" },
             ],
             blockedActions: [],
             sourceId: "alpha",
@@ -429,6 +456,7 @@ test("analyzeAllSkills reports metadata write failure without failing analysis",
         };
       },
     },
+    hashPort: { async hashDirectory() { return { ok: true, hash: "source-hash-alpha" }; } },
     analyzer: {
       async analyzeSourceSkill() {
         return {
@@ -441,12 +469,38 @@ test("analyzeAllSkills reports metadata write failure without failing analysis",
   });
 
   assert.equal(result.ok, true);
+  assert.equal(result.batchState, "CompletedWithFailures");
   assert.equal(result.diagnostics[0].code, "analysis-metadata-write-failed");
   assert.equal(result.diagnostics[0].sourceId, "alpha");
   assert.deepEqual(
     result.events.map((event) => event.code),
     ["analysis.metadata.write.failed", "skill.analysis.completed"],
   );
+});
+
+test("analyzeAllSkills keeps completed sources when one source analysis fails", async () => {
+  const result = await analyzeAllSkills({
+    context: { mainRepositoryPath: "/repo" },
+    skillRepository: { async scanSourceSkills() { return { ok: true, sources: [{ id: "alpha", name: "alpha", sourcePath: "/repo/skills/alpha" }, { id: "broken", name: "broken", sourcePath: "/repo/skills/broken" }] }; } },
+    analyzer: { async analyzeSourceSkill({ source }) { if (source.id === "broken") throw new Error("read failed"); return { riskLevel: "low", diagnostics: [] }; } },
+  });
+  assert.equal(result.batchState, "CompletedWithFailures");
+  assert.deepEqual(result.summaries.map((item) => item.sourceId), ["alpha"]);
+  assert.equal(result.diagnostics.at(-1).code, "analysis-source-failed");
+});
+
+test("analyzeAllSkills cancels before another source is analyzed or persisted", async () => {
+  let cancelled = false;
+  const analyzed = [];
+  const result = await analyzeAllSkills({
+    context: { mainRepositoryPath: "/repo" },
+    skillRepository: { async scanSourceSkills() { return { ok: true, sources: [{ id: "alpha", name: "alpha", sourcePath: "/repo/skills/alpha" }, { id: "beta", name: "beta", sourcePath: "/repo/skills/beta" }] }; } },
+    analyzer: { async analyzeSourceSkill({ source }) { analyzed.push(source.id); cancelled = true; return { riskLevel: "low", diagnostics: [] }; } },
+    cancellation: { isCancelled() { return cancelled; } },
+  });
+  assert.equal(result.cancelled, true);
+  assert.equal(result.batchState, "Cancelled");
+  assert.deepEqual(analyzed, ["alpha"]);
 });
 
 test("updateAppliedCopyFromSource blocks target changes without confirmation", async () => {

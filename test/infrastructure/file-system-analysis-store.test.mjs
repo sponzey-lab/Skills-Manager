@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -16,13 +16,17 @@ test("FileSystemAnalysisStore writes metadata under repository analysis director
     const result = await store.writeAnalysisMetadata({
       repositoryPath,
       metadata: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         analyzerVersion: "test-analyzer",
         skillId: "../unsafe skill",
         skillName: "../unsafe skill",
         sourceHash: "source-hash",
         analyzedAt: "2026-07-01T00:00:00.000Z",
         riskLevel: "low",
+        rulePackVersion: "builtin-policy-v1",
+        riskDecision: { riskLevel: "low" },
+        findings: [],
+        coverage: { scannedFileCount: 1, analyzedArtifactCount: 1, skipped: [] },
         diagnostics: [],
         dependencies: [],
         compatibility: {},
@@ -55,6 +59,7 @@ test("FileSystemAnalysisStore rejects invalid metadata before writing", async ()
     const result = await store.writeAnalysisMetadata({
       repositoryPath,
       metadata: {
+        schemaVersion: 2,
         skillId: "alpha",
       },
     });
@@ -82,13 +87,17 @@ test("FileSystemAnalysisStore reports unsupported metadata schema version", asyn
     const writeResult = await store.writeAnalysisMetadata({
       repositoryPath,
       metadata: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         analyzerVersion: "test-analyzer",
         skillId: "alpha",
         skillName: "alpha",
         sourceHash: "source-hash",
         analyzedAt: "2026-07-01T00:00:00.000Z",
         riskLevel: "low",
+        rulePackVersion: "builtin-policy-v1",
+        riskDecision: { riskLevel: "low" },
+        findings: [],
+        coverage: { scannedFileCount: 1, analyzedArtifactCount: 1, skipped: [] },
         diagnostics: [],
         dependencies: [],
         compatibility: {},
@@ -127,6 +136,21 @@ test("FileSystemAnalysisStore reports unsupported metadata schema version", asyn
         recommendation: "Run Analyze All Skills again.",
       },
     });
+  } finally {
+    await rm(repositoryPath, { recursive: true, force: true });
+  }
+});
+
+test("FileSystemAnalysisStore treats v1 metadata as stale without rewriting it", async () => {
+  const repositoryPath = await mkdtemp(path.join(os.tmpdir(), "sponzey-analysis-store-"));
+  const store = new FileSystemAnalysisStore();
+  try {
+    const analysisDirectory = path.join(repositoryPath, ".sponzey", "analysis");
+    const metadataPath = path.join(analysisDirectory, Buffer.from("alpha").toString("base64url") + ".json");
+    await mkdir(analysisDirectory, { recursive: true });
+    await writeFile(metadataPath, JSON.stringify({ schemaVersion: 1 }));
+    const result = await store.readAnalysisMetadata({ repositoryPath, skillId: "alpha" });
+    assert.equal(result.error.code, "analysis-metadata-stale-version");
   } finally {
     await rm(repositoryPath, { recursive: true, force: true });
   }

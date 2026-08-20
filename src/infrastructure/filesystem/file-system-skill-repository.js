@@ -6,6 +6,7 @@ import {
   readdir,
   rename,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -16,6 +17,12 @@ const REPOSITORY_DIRECTORIES = ["skills", "backups", ".sponzey"];
 const METADATA_PATH_PARTS = [".sponzey", "repository.json"];
 const SOURCE_METADATA_FILE = ".sponzey-source.json";
 const BACKUP_METADATA_FILE = ".sponzey-backup.json";
+const DEFAULT_ANALYSIS_ARTIFACT_BUDGET = Object.freeze({
+  maxFiles: 2000,
+  maxDepth: 16,
+  maxTextFileBytes: 1024 * 1024,
+  maxTotalTextBytes: 32 * 1024 * 1024,
+});
 
 export class FileSystemSkillRepository {
   async createSourceSkill({ repositoryPath, skillName, description, body }) {
@@ -227,6 +234,35 @@ export class FileSystemSkillRepository {
         files,
       };
     }, "read-source-skill-files");
+  }
+
+  async readSourceSkillArtifacts({ sourcePath, budget }) {
+    return withFileSystemResult(async () => {
+      const normalizedBudget = analysisArtifactBudget(budget);
+      const result = await readAnalysisArtifacts({
+        rootPath: sourcePath,
+        currentPath: sourcePath,
+        depth: 0,
+        budget: normalizedBudget,
+        state: {
+          scannedFileCount: 0,
+          analyzedArtifactCount: 0,
+          totalTextBytes: 0,
+          artifacts: [],
+          skipped: [],
+        },
+      });
+
+      return {
+        ok: true,
+        artifacts: result.artifacts,
+        coverage: {
+          scannedFileCount: result.scannedFileCount,
+          analyzedArtifactCount: result.analyzedArtifactCount,
+          skipped: result.skipped,
+        },
+      };
+    }, "read-source-skill-artifacts");
   }
 
   async writeRepositoryMetadata({ repositoryPath, metadata }) {
@@ -551,6 +587,148 @@ async function readDirectoryFiles({ rootPath, currentPath }) {
   }
 
   return files;
+}
+
+async function readAnalysisArtifacts({
+  rootPath,
+  currentPath,
+  depth,
+  budget,
+  state,
+}) {
+  if (depth > budget.maxDepth) {
+    state.skipped.push({
+      code: "analysis-artifact-depth-limit-skipped",
+      relativePath: relativePathFrom({ rootPath, entryPath: currentPath }),
+    });
+    return state;
+  }
+
+  const entries = await readdir(currentPath, { withFileTypes: true });
+  const sortedEntries = [...entries].sort((left, right) =>
+    left.name.localeCompare(right.name),
+  );
+
+  for (const entry of sortedEntries) {
+    const entryPath = path.join(currentPath, entry.name);
+    const relativePath = relativePathFrom({ rootPath, entryPath });
+
+    if (entry.isSymbolicLink()) {
+      state.skipped.push({
+        code: "analysis-artifact-symlink-skipped",
+        relativePath,
+      });
+      continue;
+    }
+
+    if (entry.isDirectory()) {
+      await readAnalysisArtifacts({
+        rootPath,
+        currentPath: entryPath,
+        depth: depth + 1,
+        budget,
+        state,
+      });
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      state.skipped.push({
+        code: "analysis-artifact-unsupported-kind-skipped",
+        relativePath,
+      });
+      continue;
+    }
+
+    state.scannedFileCount += 1;
+    if (state.scannedFileCount > budget.maxFiles) {
+      state.skipped.push({
+        code: "analysis-artifact-count-limit-skipped",
+        relativePath,
+      });
+      continue;
+    }
+
+    const fileStat = await stat(entryPath);
+    if (fileStat.size > budget.maxTextFileBytes) {
+      state.skipped.push({
+        code: "analysis-artifact-file-limit-skipped",
+        relativePath,
+        sizeBytes: fileStat.size,
+      });
+      continue;
+    }
+
+    if (state.totalTextBytes + fileStat.size > budget.maxTotalTextBytes) {
+      state.skipped.push({
+        code: "analysis-artifact-total-limit-skipped",
+        relativePath,
+        sizeBytes: fileStat.size,
+      });
+      continue;
+    }
+
+    const bytes = await readFile(entryPath);
+    if (bytes.includes(0)) {
+      state.skipped.push({
+        code: "analysis-artifact-binary-skipped",
+        relativePath,
+      });
+      continue;
+    }
+
+    let text;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      state.skipped.push({
+        code: "analysis-artifact-invalid-encoding-skipped",
+        relativePath,
+      });
+      continue;
+    }
+
+    state.totalTextBytes += fileStat.size;
+    state.analyzedArtifactCount += 1;
+    state.artifacts.push({
+      relativePath,
+      artifactKind: analysisArtifactKind(relativePath),
+      text,
+    });
+  }
+
+  return state;
+}
+
+function analysisArtifactBudget(budget = {}) {
+  return {
+    maxFiles: positiveInteger(budget.maxFiles, DEFAULT_ANALYSIS_ARTIFACT_BUDGET.maxFiles),
+    maxDepth: positiveInteger(budget.maxDepth, DEFAULT_ANALYSIS_ARTIFACT_BUDGET.maxDepth),
+    maxTextFileBytes: positiveInteger(
+      budget.maxTextFileBytes,
+      DEFAULT_ANALYSIS_ARTIFACT_BUDGET.maxTextFileBytes,
+    ),
+    maxTotalTextBytes: positiveInteger(
+      budget.maxTotalTextBytes,
+      DEFAULT_ANALYSIS_ARTIFACT_BUDGET.maxTotalTextBytes,
+    ),
+  };
+}
+
+function positiveInteger(value, fallback) {
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function relativePathFrom({ rootPath, entryPath }) {
+  return path.relative(rootPath, entryPath).split(path.sep).join("/") || ".";
+}
+
+function analysisArtifactKind(relativePath) {
+  if (relativePath === "SKILL.md") return "skill-manifest";
+  if (relativePath.startsWith("scripts/")) return "script";
+  if (relativePath.startsWith("references/")) return "reference";
+  if (relativePath === "agents/openai.yaml") return "agent-manifest";
+  return "metadata";
 }
 
 async function writeArchiveFiles({ rootPath, files }) {

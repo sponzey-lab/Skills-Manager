@@ -55,7 +55,9 @@ Sponzey Skills Manager is a VSCode extension for managing Agent Skills as explic
 - The tree read model distinguishes managed copy, managed symlink, external, and broken symlink states.
 - Sync status can classify copy drift as `In Sync`, `Source Changed`, `Target Changed`, `Both Changed`, `Missing Source`, `Missing Target`, `External`, or `Broken Symlink`.
 - Analyzer diagnostics are grouped by structure, quality, security, dependency, compatibility, and sync categories.
-- Critical risk blocks target writes before filesystem mutation.
+- Analyzer findings distinguish verified `confirmed` behavior from non-blocking `potential` signals. A potential signal is never Critical; only correlated independent signals can require confirmation.
+- Analysis is static and bounded (2,000 files, depth 16, 1 MiB per text artifact, 32 MiB total), reports skipped artifacts as coverage gaps, and never follows analysis symlinks.
+- Critical confirmed risk blocks target writes before filesystem mutation. Analysis metadata stores sanitized relative evidence only; v1 metadata is marked stale and regenerated rather than rewritten.
 
 ## Troubleshooting
 

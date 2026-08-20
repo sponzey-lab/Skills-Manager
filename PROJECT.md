@@ -630,6 +630,10 @@ MVP에서는 VSCode 기본 editor로 파일을 여는 방식만으로도 충분�
 
 분석 결과는 단순 점수보다 구체적인 진단 목록으로 보여줘야 한다.
 
+분석은 실행·네트워크·sandbox 없이 정적으로 수행한다. `SKILL.md`와 허용된 text artifact는 source당 최대 2,000개, 깊이 16, artifact당 1 MiB, 총 32 MiB 안에서만 읽고 symlink는 따라가지 않는다. 초과·binary·encoding 오류는 안전 판정이 아니라 coverage gap으로 표시한다.
+
+finding은 검증된 `confirmed`와 상관관계 기반 `potential`을 구분한다. confirmed Critical만 기본 적용을 차단한다. potential 단일 신호는 최대 Medium·비차단이고, 독립 signal family가 상관될 때만 High 확인을 요구한다. Diagnostics는 confidence, impact, 상대 파일 위치와 안전한 요약만 표시하며 raw skill body, secret, raw match, URL query, 절대경로를 저장하거나 표시하지 않는다.
+
 예시:
 
 ```text

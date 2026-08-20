@@ -12,6 +12,22 @@ export function createRepositorySkillAnalyzer({ skillRepository }) {
 }
 
 async function analyzeRepositorySourceSkill({ skillRepository, source }) {
+  if (typeof skillRepository?.readSourceSkillArtifacts === "function") {
+    const artifactResult = await skillRepository.readSourceSkillArtifacts({
+      sourcePath: source.sourcePath,
+    });
+
+    if (!artifactResult.ok) {
+      return sourceReadFailed({ diagnostic: artifactResult.error });
+    }
+
+    return analyzeSkillDirectory({
+      directoryName: source.name,
+      artifacts: artifactResult.artifacts,
+      coverage: artifactResult.coverage,
+    });
+  }
+
   if (typeof skillRepository?.readSourceSkillFiles !== "function") {
     return sourceReadFailed({
       diagnostic: {
