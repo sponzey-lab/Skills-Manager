@@ -81,11 +81,11 @@ test("mapSkillsReadModelToTreeItems maps read model into four root sections", ()
     ],
   );
   assert.equal(tree[0].children[0].label, "alpha");
-  assert.equal(tree[0].children[0].iconId, "repo");
-  assert.equal(tree[1].children[0].iconId, "agent-codex");
+  assert.equal(tree[0].children[0].iconId, undefined);
+  assert.equal(tree[1].children[0].iconId, undefined);
   assert.equal(tree[1].children[0].label, "alpha");
   assert.equal(tree[1].children[0].description, "Codex · managed-symlink");
-  assert.equal(tree[2].children[0].iconId, "agent-codex");
+  assert.equal(tree[2].children[0].iconId, undefined);
   assert.equal(tree[2].children[0].label, "external");
   assert.equal(
     tree[2].children[0].description,
@@ -128,7 +128,7 @@ test("mapSkillsReadModelToTreeItems renders one flat Global enrollment row with 
   const aggregate = tree[1].children[0];
   assert.equal(aggregate.label, "alpha");
   assert.equal(aggregate.description, "managed · 2 targets");
-  assert.equal(aggregate.iconId, "organization");
+  assert.equal(aggregate.iconId, undefined);
   assert.equal(aggregate.contextValue, "sponzeyGlobalEnrollment");
   assert.equal(aggregate.collapsible, false);
   assert.deepEqual(aggregate.children, []);
@@ -432,7 +432,7 @@ test("mapSkillsReadModelToTreeItems hides empty project targets from flat skill 
   assert.deepEqual(tree[2].children, []);
 });
 
-test("mapSkillsReadModelToTreeItems uses agent badges for Claude targets", () => {
+test("mapSkillsReadModelToTreeItems omits left icons for Claude targets", () => {
   const tree = mapSkillsReadModelToTreeItems({
     mainRepositorySkills: [],
     globalSkills: [
@@ -473,10 +473,10 @@ test("mapSkillsReadModelToTreeItems uses agent badges for Claude targets", () =>
     diagnostics: [],
   });
 
-  assert.equal(tree[1].children[0].iconId, "agent-claude");
+  assert.equal(tree[1].children[0].iconId, undefined);
   assert.equal(tree[1].children[0].label, "global-claude-skill");
   assert.equal(tree[1].children[0].description, "Claude · managed-copy");
-  assert.equal(tree[2].children[0].iconId, "agent-claude");
+  assert.equal(tree[2].children[0].iconId, undefined);
   assert.equal(tree[2].children[0].label, "claude-skill");
   assert.equal(
     tree[2].children[0].description,
@@ -504,7 +504,7 @@ test("mapSkillsReadModelToTreeItems keeps an unsupported aggregate readable for 
     diagnostics: [],
   });
 
-  assert.equal(tree[1].children[0].iconId, "organization");
+  assert.equal(tree[1].children[0].iconId, undefined);
   assert.equal(tree[1].children[0].description, "external · 1 target");
 });
 

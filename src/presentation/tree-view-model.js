@@ -25,7 +25,6 @@ export function mapSkillsReadModelToTreeItems(readModel) {
           label: skill.name,
           description: sourceDescription(skill),
           detail: skill.sourcePath,
-          iconId: "repo",
           contextValue: "sponzeySkillSource",
           source: sourceFromSkill(skill),
         }),
@@ -76,7 +75,6 @@ function aggregateAppliedSkillItem(row, { scope, sourceById } = {}) {
     label: row.name,
     description: [row.kind, `${placements.length} target${placements.length === 1 ? "" : "s"}`].join(" · "),
     detail: placements.map((placement) => placement.targetPath).filter(Boolean).join(" · "),
-    iconId: "organization",
     contextValue: isGlobalEnrollment
       ? "sponzeyGlobalEnrollment"
       : placements.length === 1
@@ -98,7 +96,6 @@ function appliedSkillItem({ group, skill }) {
     label: skill.name,
     description: appliedSkillDescriptionWithTarget({ group, skill }),
     detail: appliedSkillDetailWithTarget({ group, skill }),
-    iconId: iconIdForTarget(group),
     contextValue: "sponzeyAppliedSkill",
     target,
     appliedSkill: appliedSkillFromSkill(skill),
@@ -492,26 +489,6 @@ function item({
   }
 
   return treeItem;
-}
-
-function iconIdForTarget(group) {
-  if (group.clientType === "codex") {
-    return "agent-codex";
-  }
-
-  if (group.clientType === "claude") {
-    return "agent-claude";
-  }
-
-  if (group.scope === "global") {
-    return "globe";
-  }
-
-  if (group.scope === "project") {
-    return "folder";
-  }
-
-  return "target";
 }
 
 function iconIdForDiagnostic(diagnostic) {

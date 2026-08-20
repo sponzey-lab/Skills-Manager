@@ -53,7 +53,7 @@
 
 - [ ] Apply to Global Target이 persistent enrollment를 만들고 현재 applyable Global client 전체에 적용하며, 새 client target 등록 뒤 누락 placement를 자동 조정한다.
 - [ ] workspace folder가 열려 있을 때 Apply to Project Target이 Codex, Claude, all supported clients 중 선택하게 한다.
-- [ ] Global Skills는 target folder grouping과 target child 없이 source/hash aggregate row 한 행으로 표시한다. generated left icon은 없고, 스킬 이름 오른쪽에 Codex/OpenAI, Claude, Gemini, GitHub Copilot, Cursor, Perplexity, Mistral, DeepSeek, Meta AI, Hugging Face, Ollama 중 target에 맞는 SVG image를 표시한다. 미지원 AI는 공통 custom generic image를 사용한다.
+- [ ] Main Repository, Global Skills, Project Skills의 스킬 행은 왼쪽 아이콘 없이 일관되게 표시하고 스킬 이름의 왼쪽 기준선을 동일하게 맞춘다. Global Skills는 target folder grouping과 target child 없이 source/hash aggregate row 한 행으로 표시하고, 스킬 이름 오른쪽에 Codex/OpenAI, Claude, Gemini, GitHub Copilot, Cursor, Perplexity, Mistral, DeepSeek, Meta AI, Hugging Face, Ollama 중 target에 맞는 SVG image를 표시한다. 미지원 AI는 공통 custom generic image를 사용한다.
 - [ ] Global Skills의 managed aggregate row를 우클릭하면 `Remove Global Skill Enrollment`가 표시되고, 확인 후 모든 enrolled Global placement만 해제한다.
 - [ ] Project Skills row는 target folder grouping과 target child 없이 source/hash aggregate row 한 행으로 표시한다.
 - [ ] Target Profile logic이 apply, scan, diagnostics, badge, compatibility 결정을 일관되게 만든다.

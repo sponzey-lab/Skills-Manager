@@ -43,3 +43,15 @@ test("globalSkillsHtml renders AI images on the right without an organization le
   assert.match(html, /Remove Global Skill Enrollment/);
   assert.match(html, /data-source-path="\/repo\/skills\/alpha"/);
 });
+
+test("globalSkillsHtml aligns its skill names with native tree child rows", () => {
+  const html = globalSkillsHtml({
+    readModel: {
+      mainRepositorySkills: [],
+      globalSkills: [],
+    },
+  });
+
+  assert.match(html, /\.skill-row \{[^}]*padding: 0 8px 0 36px;/);
+  assert.match(html, /\.context-action \{[^}]*left: 36px;/);
+});

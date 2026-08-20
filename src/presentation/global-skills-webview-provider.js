@@ -64,10 +64,10 @@ export function globalSkillsHtml({ readModel, iconUri = () => "" }) {
   }).join("");
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     body { color: var(--vscode-foreground); font: var(--vscode-font-weight) var(--vscode-font-size) var(--vscode-font-family); padding: 0; }
-    ul { list-style: none; margin: 0; padding: 0; } .skill-row { align-items: center; display: flex; gap: 6px; min-height: 24px; padding: 0 8px; position: relative; }
+    ul { list-style: none; margin: 0; padding: 0; } .skill-row { align-items: center; display: flex; gap: 6px; min-height: 24px; padding: 0 8px 0 36px; position: relative; }
     .skill-row:hover { background: var(--vscode-list-hoverBackground); } .skill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .client-icons { display: inline-flex; gap: 4px; } .client-icon { height: 14px; width: 14px; } .detail { color: var(--vscode-descriptionForeground); }
-    .context-action { background: var(--vscode-menu-background); border: 1px solid var(--vscode-menu-border); color: var(--vscode-menu-foreground); display: none; left: 8px; padding: 5px 8px; position: absolute; top: 22px; z-index: 1; }
+    .context-action { background: var(--vscode-menu-background); border: 1px solid var(--vscode-menu-border); color: var(--vscode-menu-foreground); display: none; left: 36px; padding: 5px 8px; position: absolute; top: 22px; z-index: 1; }
     .context-action.visible { display: block; }
   </style></head><body><ul>${rows}</ul><script>
     const vscode = acquireVsCodeApi();

@@ -94,7 +94,7 @@ Global Skills와 Project Skills는 target 폴더별 목록이 아니라 스킬 �
 - managed placement는 stable `sourceId`가 같을 때만 한 행으로 합친다.
 - external placement는 정규화한 이름과 target root 안에서 읽은 content hash가 모두 같을 때만 합친다.
 - hash를 읽지 못하거나 target root 밖으로 해석되는 external은 절대 이름만으로 합치지 않고 Diagnostics와 별도 행으로 남긴다.
-- Global aggregate row는 target child를 만들지 않는 HTML 목록으로 표시한다. AI client SVG image는 스킬 이름 오른쪽에 표시하며, 알려진 AI는 전용 image를, 그 외 AI는 공통 generic image를 사용한다. generated aggregate left icon은 표시하지 않는다. managed Global row의 우클릭 `Remove Global Skill Enrollment`는 enrollment와 모든 managed Global placement를 해제한다.
+- Main Repository, Global Skills, Project Skills의 스킬 행은 왼쪽 아이콘을 표시하지 않으며, 스킬 이름의 왼쪽 기준선을 동일하게 맞춘다. Global aggregate row는 target child를 만들지 않는 HTML 목록으로 표시한다. AI client SVG image는 스킬 이름 오른쪽에 표시하며, 알려진 AI는 전용 image를, 그 외 AI는 공통 generic image를 사용한다. managed Global row의 우클릭 `Remove Global Skill Enrollment`는 enrollment와 모든 managed Global placement를 해제한다.
 - broken symlink는 active Global/Project row가 아니라 Diagnostics repair/remove 흐름으로만 표시한다.
 
 ### 4.3 삭제와 적용 해제는 구분한다

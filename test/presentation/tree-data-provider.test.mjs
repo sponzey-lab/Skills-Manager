@@ -34,7 +34,6 @@ test("main repository tree provider loads source skill children", async () => {
     label: "alpha",
     description: "applied",
     tooltip: "/repo/skills/alpha",
-    iconPath: { id: "repo" },
     contextValue: "sponzeySkillSource",
     collapsibleState: 0,
     source: {
@@ -79,28 +78,24 @@ test("main repository tree items preserve the selected source payload", async ()
   });
 });
 
-test("tree provider converts icon ids with provided theme icon factory", async () => {
+test("tree provider omits left icons for Main Repository skill rows", async () => {
   const provider = createSkillsTreeDataProvider({
     viewId: "sponzeySkills.mainRepository",
     async loadReadModel() {
       return sampleReadModel();
     },
     themeIconFactory(iconId) {
-      return {
-        themeIcon: iconId,
-      };
+      throw new Error(`unexpected icon request: ${iconId}`);
     },
   });
 
   const children = await provider.getChildren();
   const treeItem = provider.getTreeItem(children[0]);
 
-  assert.deepEqual(treeItem.iconPath, {
-    themeIcon: "repo",
-  });
+  assert.equal(treeItem.iconPath, undefined);
 });
 
-test("tree provider keeps the existing left icon when client icons are rendered in the description", async () => {
+test("tree provider omits the left icon for Global aggregate rows", async () => {
   const iconRequests = [];
   const provider = createSkillsTreeDataProvider({
     viewId: "sponzeySkills.globalSkills",
@@ -127,7 +122,7 @@ test("tree provider keeps the existing left icon when client icons are rendered 
   const [aggregate] = await provider.getChildren();
   provider.getTreeItem(aggregate);
 
-  assert.deepEqual(iconRequests, ["organization"]);
+  assert.deepEqual(iconRequests, []);
 });
 
 test("global skills tree provider returns applied skills with agent badges", async () => {
@@ -148,7 +143,6 @@ test("global skills tree provider returns applied skills with agent badges", asy
         label: "alpha",
         description: "Codex · managed-copy",
         tooltip: "/global -> /target/alpha",
-        iconPath: { id: "agent-codex" },
         contextValue: "sponzeyAppliedSkill",
         collapsibleState: 0,
         target: {
