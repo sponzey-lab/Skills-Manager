@@ -544,6 +544,127 @@ test("deleteSourceSkill blocks source delete without delete confirmation", async
   });
 });
 
+test("deleteSourceSkill ignores a stale UI count and cleans only exact managed placements before deleting the source", async () => {
+  const removedPaths = [];
+  const remainingPaths = new Set(["/codex/alpha", "/codex/alpha-external", "/workspace/alpha"]);
+  let deleted = false;
+  const result = await deleteSourceSkill({
+    context: {
+      mainRepositoryPath: "/repo",
+      globalTargets: [{ id: "global:codex", scope: "global", targetPath: "/codex" }],
+      projectTargets: [{ id: "project:workspace", scope: "project", targetPath: "/workspace" }],
+    },
+    input: {
+      source: {
+        id: "source:alpha",
+        name: "alpha",
+        sourcePath: "/repo/alpha",
+        appliedTargetCount: 0,
+      },
+      confirmationProvided: true,
+      cleanupManagedPlacements: true,
+    },
+    skillRepository: {
+      async deleteSourceSkill() {
+        deleted = true;
+        return { ok: true };
+      },
+    },
+    targetStore: {
+      async scanAppliedSkills({ targetPath }) {
+        return {
+          ok: true,
+          appliedSkills: targetPath === "/codex"
+            ? [
+                remainingPaths.has("/codex/alpha") && { kind: "managed-copy", targetPath: "/codex/alpha", metadata: { sourceSkillId: "source:alpha", sourcePath: "/repo/alpha" } },
+                remainingPaths.has("/codex/alpha-external") && { kind: "external", targetPath: "/codex/alpha-external", name: "alpha" },
+              ].filter(Boolean)
+            : [remainingPaths.has("/workspace/alpha") && { kind: "managed-symlink", targetPath: "/workspace/alpha", sourcePath: "/repo/alpha" }].filter(Boolean),
+          diagnostics: [],
+        };
+      },
+      async removeTargetEntry({ targetPath }) {
+        removedPaths.push(targetPath);
+        remainingPaths.delete(targetPath);
+        return { ok: true };
+      },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(deleted, true);
+  assert.deepEqual(removedPaths, ["/codex/alpha", "/workspace/alpha"]);
+  assert.equal(result.sourceDeletion.removedManagedPlacementCount, 2);
+});
+
+test("deleteSourceSkill preserves a deletion-pending Global enrollment when managed cleanup fails", async () => {
+  const enrollmentWrites = [];
+  let deleted = false;
+  const result = await deleteSourceSkill({
+    context: {
+      mainRepositoryPath: "/repo",
+      defaultApplyMode: "copy",
+      globalTargets: [{ id: "global:codex", scope: "global", targetPath: "/codex" }],
+    },
+    input: {
+      source: { id: "source:alpha", name: "alpha", sourcePath: "/repo/alpha", appliedTargetCount: 0 },
+      confirmationProvided: true,
+      cleanupManagedPlacements: true,
+    },
+    skillRepository: {
+      async deleteSourceSkill() { deleted = true; return { ok: true }; },
+    },
+    enrollmentStore: {
+      async readGlobalSkillEnrollments() { return { ok: true, enrollments: [] }; },
+      async writeGlobalSkillEnrollments({ enrollments }) { enrollmentWrites.push(enrollments); return { ok: true }; },
+    },
+    targetStore: {
+      async scanAppliedSkills() {
+        return { ok: true, appliedSkills: [{ kind: "managed-copy", targetPath: "/codex/alpha", metadata: { sourceSkillId: "source:alpha", sourcePath: "/repo/alpha", applyMode: "copy" } }], diagnostics: [] };
+      },
+      async removeTargetEntry() { return { ok: false, error: { code: "permission-denied" } }; },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(deleted, false);
+  assert.equal(result.sourceDeletion.deleted, false);
+  assert.equal(enrollmentWrites[0][0].lifecycle, "deletion-pending");
+  assert.deepEqual(enrollmentWrites[0][0].remainingCleanupPlacements, [{ kind: "AppliedSkillPlacement", targetId: "global:codex", applyMode: "copy" }]);
+});
+
+test("deleteSourceSkill source-only mode disables future Global reconciliation and warns about surviving placements", async () => {
+  const enrollmentWrites = [];
+  const result = await deleteSourceSkill({
+    context: {
+      mainRepositoryPath: "/repo",
+      globalTargets: [{ id: "global:codex", scope: "global", targetPath: "/codex" }],
+    },
+    input: {
+      source: { id: "source:alpha", name: "alpha", sourcePath: "/repo/alpha", appliedTargetCount: 0 },
+      confirmationProvided: true,
+      cleanupManagedPlacements: false,
+    },
+    skillRepository: { async deleteSourceSkill() { return { ok: true }; } },
+    enrollmentStore: {
+      async readGlobalSkillEnrollments() {
+        return { ok: true, enrollments: [{ sourceSkillId: "source:alpha", defaultApplyMode: "copy", lifecycle: "active", placements: [{ targetId: "global:codex", applyMode: "copy" }], remainingCleanupPlacements: [] }] };
+      },
+      async writeGlobalSkillEnrollments({ enrollments }) { enrollmentWrites.push(enrollments); return { ok: true }; },
+    },
+    targetStore: {
+      async scanAppliedSkills() {
+        return { ok: true, appliedSkills: [{ kind: "managed-copy", targetPath: "/codex/alpha", metadata: { sourceSkillId: "source:alpha", sourcePath: "/repo/alpha" } }], diagnostics: [] };
+      },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(enrollmentWrites, [[]]);
+  assert.equal(result.sourceDeletion.remainingManagedPlacementCount, 1);
+  assert.equal(result.diagnostics[0].code, "source-delete-source-only-managed-placement-remains");
+});
+
 test("convertAppliedSkillMode blocks target changes without confirmation taxonomy", async () => {
   let conversionCalled = false;
   const result = await convertAppliedSkillMode({

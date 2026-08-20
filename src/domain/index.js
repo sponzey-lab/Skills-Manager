@@ -1,4 +1,7 @@
 export {
+  createAppliedSkillPlacement,
+  createGlobalSkillEnrollment,
+  GLOBAL_SKILL_ENROLLMENT_SCHEMA_VERSION,
   createSkillName,
   createSkillSource,
   createSkillTarget,

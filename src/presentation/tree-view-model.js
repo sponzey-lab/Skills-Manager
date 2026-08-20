@@ -35,12 +35,18 @@ export function mapSkillsReadModelToTreeItems(readModel) {
     section(
       "globalSkills",
       "Global Skills",
-      flatAppliedSkillItems(readModel.globalSkills ?? []),
+      flatAppliedSkillItems(readModel.globalSkills ?? [], {
+        scope: "global",
+        sourceById,
+      }),
     ),
     section(
       "projectSkills",
       "Project Skills",
-      flatAppliedSkillItems(readModel.projectSkills ?? []),
+      flatAppliedSkillItems(readModel.projectSkills ?? [], {
+        scope: "project",
+        sourceById,
+      }),
     ),
     section(
       "diagnostics",
@@ -53,10 +59,35 @@ export function mapSkillsReadModelToTreeItems(readModel) {
   ];
 }
 
-function flatAppliedSkillItems(groups) {
+function flatAppliedSkillItems(groups, options = {}) {
   return groups.flatMap((group) =>
-    (group.skills ?? []).map((skill) => appliedSkillItem({ group, skill })),
+    Array.isArray(group.placements)
+      ? [aggregateAppliedSkillItem(group, options)]
+      : (group.skills ?? []).map((skill) => appliedSkillItem({ group, skill })),
   );
+}
+
+function aggregateAppliedSkillItem(row, { scope, sourceById } = {}) {
+  const placements = row.placements ?? [];
+  const source = row.sourceId ? sourceById?.get(row.sourceId) : undefined;
+  const isGlobalEnrollment = scope === "global" && source !== undefined;
+  return item({
+    id: `aggregate-target-skill:${row.id}`,
+    label: row.name,
+    description: [row.kind, `${placements.length} target${placements.length === 1 ? "" : "s"}`].join(" · "),
+    detail: placements.map((placement) => placement.targetPath).filter(Boolean).join(" · "),
+    iconId: "organization",
+    contextValue: isGlobalEnrollment
+      ? "sponzeyGlobalEnrollment"
+      : placements.length === 1
+        ? "sponzeyAppliedSkill"
+        : "sponzeyAggregatedAppliedSkill",
+    source,
+    target: placements.length === 1 ? targetFromGroup(placements[0]) : undefined,
+    appliedSkill: placements.length === 1 ? appliedSkillFromSkill(placements[0].appliedSkill) : undefined,
+    collapsible: false,
+    children: [],
+  });
 }
 
 function appliedSkillItem({ group, skill }) {
@@ -413,6 +444,7 @@ function item({
   diagnostic,
   diagnosticActions,
   iconId,
+  clientBadges,
 }) {
   const treeItem = {
     id,
@@ -425,6 +457,10 @@ function item({
 
   if (iconId) {
     treeItem.iconId = iconId;
+  }
+
+  if (Array.isArray(clientBadges) && clientBadges.length > 0) {
+    treeItem.clientBadges = [...clientBadges];
   }
 
   if (contextValue) {

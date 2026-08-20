@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  createAppliedSkillPlacement,
+  createGlobalSkillEnrollment,
   createSkillName,
   createSkillSource,
   createSkillTarget,
@@ -16,6 +18,86 @@ import {
   evaluateRepositoryPathPolicy,
   suggestRemediationActions,
 } from "../../src/domain/index.js";
+
+test("global enrollment keeps managed placement identity and cleanup lifecycle immutable", () => {
+  const placement = createAppliedSkillPlacement({
+    targetId: "global:codex",
+    applyMode: "symlink",
+  });
+  assert.equal(placement.ok, true);
+
+  const enrollment = createGlobalSkillEnrollment({
+    sourceSkillId: "source:alpha",
+    defaultApplyMode: "symlink",
+    lifecycle: "deletion-pending",
+    placements: [placement.value],
+    remainingCleanupPlacements: [placement.value],
+  });
+
+  assert.equal(enrollment.ok, true);
+  assert.deepEqual(enrollment.value, {
+    kind: "GlobalSkillEnrollment",
+    sourceSkillId: "source:alpha",
+    defaultApplyMode: "symlink",
+    lifecycle: "deletion-pending",
+    placements: [
+      {
+        kind: "AppliedSkillPlacement",
+        targetId: "global:codex",
+        applyMode: "symlink",
+      },
+    ],
+    remainingCleanupPlacements: [
+      {
+        kind: "AppliedSkillPlacement",
+        targetId: "global:codex",
+        applyMode: "symlink",
+      },
+    ],
+  });
+  assert.equal(Object.isFrozen(enrollment.value), true);
+  assert.equal(Object.isFrozen(enrollment.value.placements), true);
+  assert.equal(
+    Object.isFrozen(enrollment.value.remainingCleanupPlacements),
+    true,
+  );
+});
+
+test("global enrollment rejects unsafe managed placement identities and lifecycles", () => {
+  assert.deepEqual(
+    createAppliedSkillPlacement({ targetId: "", applyMode: "copy" }).diagnostics,
+    [
+      {
+        code: "invalid-applied-skill-placement-target",
+        severity: "error",
+        message: "Managed placements require a target identity.",
+      },
+    ],
+  );
+
+  assert.deepEqual(
+    createGlobalSkillEnrollment({
+      sourceSkillId: "source:alpha",
+      defaultApplyMode: "copy",
+      lifecycle: "active",
+      remainingCleanupPlacements: [
+        {
+          kind: "AppliedSkillPlacement",
+          targetId: "global:codex",
+          applyMode: "copy",
+        },
+      ],
+    }).diagnostics,
+    [
+      {
+        code: "invalid-global-enrollment-cleanup-state",
+        severity: "error",
+        message:
+          "Remaining cleanup placements require the deletion-pending lifecycle.",
+      },
+    ],
+  );
+});
 
 test("domain value objects and entities are frozen and framework independent", () => {
   const name = createSkillName(" code-reviewer ");

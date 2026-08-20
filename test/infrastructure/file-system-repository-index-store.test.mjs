@@ -4,7 +4,95 @@ import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { FileSystemRepositoryIndexStore } from "../../src/infrastructure/index.js";
+import {
+  FileSystemGlobalSkillEnrollmentStore,
+  FileSystemRepositoryIndexStore,
+} from "../../src/infrastructure/index.js";
+
+test("FileSystemGlobalSkillEnrollmentStore atomically round-trips versioned enrollments", async () => {
+  const repositoryPath = await mkdtemp(
+    path.join(os.tmpdir(), "sponzey-global-enrollment-"),
+  );
+  const store = new FileSystemGlobalSkillEnrollmentStore();
+  const enrollments = [
+    {
+      sourceSkillId: "source:alpha",
+      defaultApplyMode: "symlink",
+      lifecycle: "active",
+      placements: [
+        {
+          targetId: "global:codex",
+          applyMode: "symlink",
+        },
+      ],
+      remainingCleanupPlacements: [],
+    },
+  ];
+
+  try {
+    const writeResult = await store.writeGlobalSkillEnrollments({
+      repositoryPath,
+      enrollments,
+    });
+    const readResult = await store.readGlobalSkillEnrollments({
+      repositoryPath,
+    });
+
+    assert.equal(writeResult.ok, true);
+    assert.match(writeResult.metadataPath, /\.sponzey\/global-enrollments\.json$/);
+    assert.deepEqual(readResult, {
+      ok: true,
+      enrollments: [
+        {
+          kind: "GlobalSkillEnrollment",
+          sourceSkillId: "source:alpha",
+          defaultApplyMode: "symlink",
+          lifecycle: "active",
+          placements: [
+            {
+              kind: "AppliedSkillPlacement",
+              targetId: "global:codex",
+              applyMode: "symlink",
+            },
+          ],
+          remainingCleanupPlacements: [],
+        },
+      ],
+      metadataPath: writeResult.metadataPath,
+    });
+  } finally {
+    await rm(repositoryPath, { recursive: true, force: true });
+  }
+});
+
+test("FileSystemGlobalSkillEnrollmentStore rejects invalid JSON and unsupported schema", async () => {
+  const repositoryPath = await mkdtemp(
+    path.join(os.tmpdir(), "sponzey-global-enrollment-"),
+  );
+  const store = new FileSystemGlobalSkillEnrollmentStore();
+  const metadataPath = path.join(
+    repositoryPath,
+    ".sponzey",
+    "global-enrollments.json",
+  );
+
+  try {
+    await mkdir(path.dirname(metadataPath), { recursive: true });
+    await writeFile(metadataPath, "{not-json");
+    assert.equal(
+      (await store.readGlobalSkillEnrollments({ repositoryPath })).error.code,
+      "global-enrollment-invalid-json",
+    );
+
+    await writeFile(metadataPath, '{"schemaVersion":2,"enrollments":[]}');
+    assert.equal(
+      (await store.readGlobalSkillEnrollments({ repositoryPath })).error.code,
+      "global-enrollment-unsupported-version",
+    );
+  } finally {
+    await rm(repositoryPath, { recursive: true, force: true });
+  }
+});
 
 test("FileSystemRepositoryIndexStore writes and reads index metadata", async () => {
   const repositoryPath = await mkdtemp(

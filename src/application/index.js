@@ -7,6 +7,12 @@ export { analyzeSkillDirectory } from "./analysis/analyze-skill-directory.js";
 export { createRepositorySkillAnalyzer } from "./analysis/repository-skill-analyzer.js";
 export { buildRuntimeContext, createRuntimeContext } from "./config/runtime-context-builder.js";
 export { evaluateDiagnosticRemediationActionTransition } from "./diagnostics/remediation-action-state-machine.js";
+export {
+  enrollSkillGlobally,
+  migrateExistingGlobalEnrollments,
+  reconcileGlobalSkillEnrollments,
+  removeGlobalSkillEnrollment,
+} from "./global/global-skill-enrollment-use-cases.js";
 export { routeLogEvents } from "./logging/log-event-router.js";
 export { createRefreshInvalidationController } from "./watch/refresh-invalidation-controller.js";
 export { refreshSkills } from "./refresh/refresh-skills.js";

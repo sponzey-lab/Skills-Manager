@@ -21,6 +21,7 @@ import {
 } from "./infrastructure/index.js";
 import {
   createCommandHandlers,
+  createGlobalSkillsWebviewProvider,
   createSkillsTreeDataProviders,
   describePresentationLayer,
   refreshSponzeyTreeDataProviders,
@@ -120,6 +121,18 @@ export async function activate(context, runtime = {}) {
         window: rendererWindow,
       })
     : handlersWithLogging;
+  if (
+    treeDataProviders &&
+    inputReadModelLoader &&
+    typeof vscodeApi?.window?.registerWebviewViewProvider === "function"
+  ) {
+    treeDataProviders["sponzeySkills.globalSkills"] = createGlobalSkillsWebviewProvider({
+      loadReadModel: inputReadModelLoader,
+      onRemoveEnrollment: (input) => handlersForRegistration["sponzeySkills.removeGlobalSkillEnrollment"](input),
+      vscodeApi,
+      extensionUri: context?.extensionUri,
+    });
+  }
   const disposables = commandsApi
     ? registerSponzeyCommands({
         commandsApi,
@@ -343,6 +356,7 @@ function shouldAuditEvent(event) {
 
 const AUDIT_OPERATION_TYPES = {
   "sponzeySkills.applySkillToGlobalTarget": "apply-skill-to-global-target",
+  "sponzeySkills.removeGlobalSkillEnrollment": "remove-global-skill-enrollment",
   "sponzeySkills.applySkillToProjectTarget": "apply-skill-to-project-target",
   "sponzeySkills.removeAppliedSkill": "remove-applied-skill",
   "sponzeySkills.updateAppliedCopyFromSource": "update-copy-from-source",
@@ -767,6 +781,7 @@ function wrapRuntimeMutationHandlers({
     "sponzeySkills.importSkill",
     "sponzeySkills.installSkill",
     "sponzeySkills.applySkillToGlobalTarget",
+    "sponzeySkills.removeGlobalSkillEnrollment",
     "sponzeySkills.applySkillToProjectTarget",
     "sponzeySkills.removeAppliedSkill",
     "sponzeySkills.analyzeAllSkills",
@@ -1088,6 +1103,7 @@ function requiresMainRepository(commandId) {
     "sponzeySkills.importSkill",
     "sponzeySkills.installSkill",
     "sponzeySkills.applySkillToGlobalTarget",
+    "sponzeySkills.removeGlobalSkillEnrollment",
     "sponzeySkills.applySkillToProjectTarget",
     "sponzeySkills.analyzeAllSkills",
     "sponzeySkills.updateAppliedCopyFromSource",

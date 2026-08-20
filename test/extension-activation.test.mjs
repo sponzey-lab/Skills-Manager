@@ -3153,7 +3153,7 @@ test("apply global command collects missing input from VSCode window", async () 
   assert.equal(result.ok, true);
   assert.deepEqual(
     quickPickCalls.map((call) => call.options.placeHolder),
-    ["Select source skill", "Select global target", "Select apply mode"],
+    ["Select source skill", "Select apply mode"],
   );
   assert.deepEqual(copyCalls, [
     {
@@ -3296,7 +3296,7 @@ test("apply global command uses standard global target without persisting it as 
   assert.deepEqual(globalTargets, []);
   assert.deepEqual(
     quickPickCalls.map((call) => call.options.placeHolder),
-    ["Select source skill", "Select global target", "Select apply mode"],
+    ["Select source skill", "Select apply mode"],
   );
   assert.deepEqual(copyCalls, [
     {

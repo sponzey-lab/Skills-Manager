@@ -129,13 +129,16 @@ export function refreshSponzeyTreeDataProviders({ providers, readModel }) {
 }
 
 export function registerSponzeyTreeDataProviders({ windowApi, providers }) {
-  if (typeof windowApi?.registerTreeDataProvider !== "function") {
+  return SPONZEY_TREE_VIEWS.flatMap((view) => {
+    const provider = providers?.[view.id];
+    if (provider?.kind === "webview" && typeof windowApi?.registerWebviewViewProvider === "function") {
+      return [windowApi.registerWebviewViewProvider(view.id, provider)];
+    }
+    if (typeof windowApi?.registerTreeDataProvider === "function") {
+      return [windowApi.registerTreeDataProvider(view.id, provider)];
+    }
     return [];
-  }
-
-  return SPONZEY_TREE_VIEWS.map((view) =>
-    windowApi.registerTreeDataProvider(view.id, providers[view.id]),
-  );
+  });
 }
 
 function createNoopEventEmitter() {

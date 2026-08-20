@@ -100,6 +100,36 @@ test("tree provider converts icon ids with provided theme icon factory", async (
   });
 });
 
+test("tree provider keeps the existing left icon when client icons are rendered in the description", async () => {
+  const iconRequests = [];
+  const provider = createSkillsTreeDataProvider({
+    viewId: "sponzeySkills.globalSkills",
+    async loadReadModel() {
+      return {
+        mainRepositorySkills: [],
+        globalSkills: [{
+          id: "managed:alpha",
+          name: "alpha",
+          kind: "managed",
+          clientBadges: ["claude", "codex"],
+          placements: [
+            { targetId: "global:claude", clientType: "claude", scope: "global", targetPath: "/claude", appliedSkill: { name: "alpha", kind: "managed-copy", status: "managed", targetPath: "/claude/alpha", sourceId: "alpha" } },
+            { targetId: "global:codex", clientType: "codex", scope: "global", targetPath: "/codex", appliedSkill: { name: "alpha", kind: "managed-copy", status: "managed", targetPath: "/codex/alpha", sourceId: "alpha" } },
+          ],
+        }],
+        projectSkills: [],
+        diagnostics: [],
+      };
+    },
+    themeIconFactory(icon) { iconRequests.push(icon); return { icon }; },
+  });
+
+  const [aggregate] = await provider.getChildren();
+  provider.getTreeItem(aggregate);
+
+  assert.deepEqual(iconRequests, ["organization"]);
+});
+
 test("global skills tree provider returns applied skills with agent badges", async () => {
   const provider = createSkillsTreeDataProvider({
     viewId: "sponzeySkills.globalSkills",

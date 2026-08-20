@@ -85,6 +85,18 @@ Sponzey Skills Manager는 로컬 메인 스킬 리포지토리를 기준으로 A
 
 이 원칙은 의도하지 않은 스킬 노출과 자동 실행 위험을 줄인다.
 
+전역 적용의 명시 동작은 하나의 target을 고르는 것이 아니라 `Global enrollment`를 생성하는 것이다. enrollment가 생성된 뒤에는 현재와 이후에 등록되는 applyable Global target에 같은 managed source를 조정할 수 있다. 이는 최초 사용자의 명시적 의도를 따르는 후속 동작이며, Project target에는 적용하지 않는다.
+
+### 4.2.1 적용 목록 통합 표시
+
+Global Skills와 Project Skills는 target 폴더별 목록이 아니라 스킬 정체성별 aggregate row를 표시한다.
+
+- managed placement는 stable `sourceId`가 같을 때만 한 행으로 합친다.
+- external placement는 정규화한 이름과 target root 안에서 읽은 content hash가 모두 같을 때만 합친다.
+- hash를 읽지 못하거나 target root 밖으로 해석되는 external은 절대 이름만으로 합치지 않고 Diagnostics와 별도 행으로 남긴다.
+- Global aggregate row는 target child를 만들지 않는 HTML 목록으로 표시한다. AI client SVG image는 스킬 이름 오른쪽에 표시하며, 알려진 AI는 전용 image를, 그 외 AI는 공통 generic image를 사용한다. generated aggregate left icon은 표시하지 않는다. managed Global row의 우클릭 `Remove Global Skill Enrollment`는 enrollment와 모든 managed Global placement를 해제한다.
+- broken symlink는 active Global/Project row가 아니라 Diagnostics repair/remove 흐름으로만 표시한다.
+
 ### 4.3 삭제와 적용 해제는 구분한다
 
 스킬 관리는 최소 세 가지 삭제 동작을 구분해야 한다.
@@ -418,6 +430,14 @@ Workspace: backend-api
 - Symlink
 - Copy
 
+Global enrollment:
+
+- 사용자가 전역 적용을 명시하면 source identity, 기본 apply mode, Global enrollment lifecycle을 저장한다.
+- enrollment는 현재 applyable Global target 전체를 조정하고, 설정 재구성 또는 새 Global target 등록 후 누락 placement만 멱등 적용한다.
+- 기존 managed Global placement는 source와 target 파일을 변경하지 않고 하나의 enrollment로 이관한다.
+- target별 성공과 실패를 구분해 보존하고, 실패가 성공 placement를 rollback하거나 Project target에 적용하게 하지 않는다.
+- Global 해제는 enrollment와 managed Global placement만 제거하며 source, Project placement, external target은 보존한다.
+
 적용 전 확인:
 
 - 대상에 같은 이름의 스킬이 이미 있는가
@@ -666,6 +686,11 @@ Diagnostics
 - 연결된 target이 있으면 경고한다.
 - 심링크 target은 함께 제거할지 선택하게 한다.
 - 복사본 target은 원본 삭제와 별개로 유지할 수 있다.
+- 권장 cleanup은 실행 시점에 enrollment와 현재 Global/Project target을 다시 scan한 뒤, source identity가 검증된 managed placement만 target-first로 제거하고 재-scan으로 부재를 확인한 후 원본을 삭제한다.
+- 같은 이름의 external target은 cleanup 대상이 아니며, stale UI count나 과거 target path는 삭제 대상 판정에 사용하지 않는다.
+- cleanup 중 target 제거 또는 검증이 실패하면 source를 보존하고 enrollment를 `deletion-pending` 상태와 남은 placement로 저장해 재시도한다.
+- source-only 삭제는 명시 선택으로만 허용하며 enrollment를 비활성화한다. copy는 client에 남고 symlink는 broken이 될 수 있음을 결과에 표시한다.
+- 파일시스템 cleanup이 성공해도 이미 실행 중인 Codex 등의 client cache를 강제로 변경하지 말고 새 세션 또는 재시작이 필요할 수 있음을 안내한다.
 
 ## 8. VSCode Extension UX 설계
 
@@ -905,7 +930,22 @@ AppliedSkill
 - lastCheckedAt
 ```
 
-### 10.4 SkillBackup
+### 10.4 GlobalSkillEnrollment
+
+명시적 Global 적용 의도와 managed Global placement의 조정 상태를 표현한다.
+
+```text
+GlobalSkillEnrollment
+- sourceSkillId
+- defaultApplyMode: symlink | copy
+- lifecycle: active | deletion-pending
+- placements[]: targetId, applyMode
+- remainingCleanupPlacements[]
+```
+
+enrollment는 source와 Global target 사이의 managed 관계만 표현한다. external item, Project 자동 적용, 이름만 같은 target item은 enrollment에 포함하지 않는다.
+
+### 10.5 SkillBackup
 
 전역 또는 프로젝트 target에서 메인 리포지토리로 백업한 snapshot을 표현한다.
 
@@ -1621,9 +1661,11 @@ MVP 성공 기준:
 - 전역 스킬 목록을 볼 수 있다.
 - 현재 프로젝트 스킬 목록을 볼 수 있다.
 - 메인 리포지토리의 스킬을 전역에 적용할 수 있다.
+- 명시적 Global enrollment가 현재와 이후 applyable Global target을 멱등 조정한다.
 - 메인 리포지토리의 스킬을 프로젝트에 적용할 수 있다.
 - symlink와 copy 방식을 모두 지원한다.
 - 적용 해제 시 원본이 삭제되지 않는다.
+- cleanup source delete는 exact managed placement만 제거·검증한 뒤 source를 삭제하고, 실패는 재시도 가능한 `deletion-pending`으로 남긴다.
 - 전역 또는 프로젝트 target의 스킬을 메인 리포지토리로 복사할 수 있다.
 - 전역 또는 프로젝트 target의 스킬을 메인 리포지토리에 백업 snapshot으로 저장할 수 있다.
 - target 스킬을 메인 리포지토리로 이동할 때 원본 삭제/target 제거 여부를 명시적으로 확인한다.

@@ -4,6 +4,7 @@ const allowedTreeItemContextValues = new Set([
   "sponzeySkillSource",
   "sponzeySkillTarget",
   "sponzeyAppliedSkill",
+  "sponzeyGlobalEnrollment",
   "sponzeySkillBackup",
   "sponzeyDiagnostic",
   "sponzeyDiagnosticWithSource",

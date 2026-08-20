@@ -19,6 +19,7 @@ export {
   refreshSponzeyTreeDataProviders,
   registerSponzeyTreeDataProviders,
 } from "./tree-data-provider.js";
+export { createGlobalSkillsWebviewProvider } from "./global-skills-webview-provider.js";
 export {
   renderCommandResult,
   wrapCommandHandlerWithResultRendering,

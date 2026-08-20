@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, readFile, readdir } from "node:fs/promises";
+import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 
 import { normalizePath } from "../../domain/index.js";
@@ -35,6 +35,36 @@ export class FileSystemHashPort {
         hash: hash.digest("hex"),
         fileCount: files.length,
       };
+    } catch {
+      return {
+        ok: false,
+        error: {
+          code: "directory-hash-failed",
+          severity: "error",
+          message: "Directory hash calculation failed.",
+        },
+      };
+    }
+  }
+
+  async hashDirectoryWithinRoot({ rootPath, directoryPath, ignoredFileNames = DEFAULT_IGNORED_FILE_NAMES }) {
+    try {
+      const [resolvedRoot, resolvedDirectory] = await Promise.all([
+        realpath(rootPath),
+        realpath(directoryPath),
+      ]);
+      const relative = path.relative(resolvedRoot, resolvedDirectory);
+      if (relative === "" || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        return {
+          ok: false,
+          error: {
+            code: "directory-hash-outside-target-root",
+            severity: "warning",
+            message: "Target skill content is outside its declared target root.",
+          },
+        };
+      }
+      return this.hashDirectory({ directoryPath: resolvedDirectory, ignoredFileNames });
     } catch {
       return {
         ok: false,

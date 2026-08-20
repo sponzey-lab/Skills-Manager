@@ -106,6 +106,35 @@ test("mapSkillsReadModelToTreeItems maps read model into four root sections", ()
   );
 });
 
+test("mapSkillsReadModelToTreeItems renders one flat Global enrollment row with its source payload", () => {
+  const tree = mapSkillsReadModelToTreeItems({
+    mainRepositorySkills: [{ id: "alpha", name: "alpha", sourcePath: "/repo/alpha" }],
+    globalSkills: [{
+      id: "managed:alpha",
+      name: "alpha",
+      kind: "managed",
+      status: "managed",
+      sourceId: "alpha",
+      clientBadges: ["claude", "codex"],
+      placements: [
+        { targetId: "global:claude", clientType: "claude", scope: "global", targetPath: "/claude", appliedSkill: { name: "alpha", kind: "managed-copy", status: "managed", targetPath: "/claude/alpha", sourceId: "alpha" } },
+        { targetId: "global:codex", clientType: "codex", scope: "global", targetPath: "/codex", appliedSkill: { name: "alpha", kind: "managed-symlink", status: "managed", targetPath: "/codex/alpha", sourceId: "alpha" } },
+      ],
+    }],
+    projectSkills: [],
+    diagnostics: [],
+  });
+
+  const aggregate = tree[1].children[0];
+  assert.equal(aggregate.label, "alpha");
+  assert.equal(aggregate.description, "managed · 2 targets");
+  assert.equal(aggregate.iconId, "organization");
+  assert.equal(aggregate.contextValue, "sponzeyGlobalEnrollment");
+  assert.equal(aggregate.collapsible, false);
+  assert.deepEqual(aggregate.children, []);
+  assert.deepEqual(aggregate.source, { id: "alpha", name: "alpha", sourcePath: "/repo/alpha" });
+});
+
 test("mapSkillsReadModelToTreeItems includes command payloads and context values", () => {
   const tree = mapSkillsReadModelToTreeItems({
     mainRepositorySkills: [
@@ -455,6 +484,30 @@ test("mapSkillsReadModelToTreeItems uses agent badges for Claude targets", () =>
   );
 });
 
+test("mapSkillsReadModelToTreeItems keeps an unsupported aggregate readable for the Global Skills webview", () => {
+  const tree = mapSkillsReadModelToTreeItems({
+    mainRepositorySkills: [],
+    globalSkills: [{
+      id: "external:alpha:hash",
+      name: "alpha",
+      kind: "external",
+      clientBadges: ["unknown-ai"],
+      placements: [{
+        targetId: "global:unknown",
+        clientType: "unknown-ai",
+        scope: "global",
+        targetPath: "/unknown",
+        appliedSkill: { name: "alpha", kind: "external", status: "external", targetPath: "/unknown/alpha" },
+      }],
+    }],
+    projectSkills: [],
+    diagnostics: [],
+  });
+
+  assert.equal(tree[1].children[0].iconId, "organization");
+  assert.equal(tree[1].children[0].description, "external · 1 target");
+});
+
 test("partial target failure keeps readable skill and shows beginner action in diagnostics", () => {
   const tree = mapSkillsReadModelToTreeItems({
     mainRepositorySkills: [],
@@ -503,6 +556,16 @@ test("package contributes expected tree item context menus", async () => {
       when: item.when,
       group: item.group,
     }),
+  );
+
+  assert.equal(
+    menuCommands.some(
+      (item) =>
+        item.command === "sponzeySkills.removeGlobalSkillEnrollment" &&
+        item.when ===
+          "view == sponzeySkills.globalSkills && viewItem == sponzeyGlobalEnrollment",
+    ),
+    true,
   );
 
   assert.equal(

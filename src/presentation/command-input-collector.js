@@ -140,6 +140,10 @@ export async function collectCommandInput({
     });
   }
 
+  if (commandId === "sponzeySkills.removeGlobalSkillEnrollment") {
+    return collectRemoveGlobalSkillEnrollmentInput({ commandId, input, window, loadReadModel });
+  }
+
   if (commandId === "sponzeySkills.exportSourceSkill") {
     return collectExportSourceSkillInput({
       commandId,
@@ -1010,23 +1014,22 @@ async function collectDeleteSourceSkillInput({
   const nextInput = selected.input;
   nextInput.skillName = nextInput.skillName ?? nextInput.source.name;
 
-  if (
-    sourceAppliedTargetCount(nextInput.source) > 0 &&
-    nextInput.impactConfirmed !== true
-  ) {
+  if (nextInput.cleanupManagedPlacements === undefined) {
     const choice = await showQuickPick({
       window,
       items: [
-        { label: "Delete source and leave applied targets unchanged", value: true },
-        { label: "Cancel", value: false },
+        { label: "Delete source and clean up managed targets", value: "cleanup" },
+        { label: "Delete source only (leave targets unchanged)", value: "source-only" },
+        { label: "Cancel", value: "cancel" },
       ],
-      placeHolder: `Source '${nextInput.skillName}' is applied to targets. Continue?`,
+      placeHolder: `Delete source '${nextInput.skillName}'? Managed targets will be checked before deletion.`,
     });
 
-    if (choice === undefined || choice.value !== true) {
+    if (choice === undefined || choice.value === "cancel") {
       return cancelled(commandId);
     }
 
+    nextInput.cleanupManagedPlacements = choice.value === "cleanup";
     nextInput.impactConfirmed = true;
   }
 
@@ -1051,6 +1054,25 @@ async function collectDeleteSourceSkillInput({
     ok: true,
     input: nextInput,
   };
+}
+
+async function collectRemoveGlobalSkillEnrollmentInput({ commandId, input, window, loadReadModel }) {
+  const selected = await collectSourceSelectionInput({ commandId, input, window, loadReadModel });
+  if (!selected.ok) return selected;
+  const sourceSkillId = selected.input.source?.id;
+  if (!hasText(sourceSkillId)) return unavailable(commandId, "Global enrollment source is unavailable.");
+  if (selected.input.confirmationProvided !== true) {
+    const choice = await showQuickPick({
+      window,
+      items: [
+        { label: "Remove Global enrollment and managed Global placements", value: true },
+        { label: "Cancel", value: false },
+      ],
+      placeHolder: `Remove Global enrollment for '${selected.input.source.name}'?`,
+    });
+    if (choice === undefined || choice.value !== true) return cancelled(commandId);
+  }
+  return { ok: true, input: { sourceSkillId, confirmationProvided: true } };
 }
 
 async function collectExportSourceSkillInput({
@@ -1547,6 +1569,17 @@ async function collectApplySkillInput({
   }
 
   if (!hasTarget(nextInput.target)) {
+    if (targetScope === "global") {
+      const triggerTarget = targetChoices({
+        readModel: readModel.value,
+        targetScope,
+        source: nextInput.source,
+      })[0];
+      if (!triggerTarget) {
+        return unavailable(commandId, "No global targets are available.");
+      }
+      nextInput.target = omitUndefinedTargetFields(triggerTarget.value);
+    } else {
     const targetChoice = await chooseRequiredQuickPick({
       commandId,
       window,
@@ -1570,6 +1603,7 @@ async function collectApplySkillInput({
     }
 
     nextInput.target = targetChoice.choice.value;
+    }
   }
 
   if (!hasApplyMode(nextInput.applyMode)) {
@@ -2168,10 +2202,7 @@ function sourceChoices(readModel) {
 }
 
 function targetChoices({ readModel, targetScope, source = null }) {
-  const groups =
-    targetScope === "project"
-      ? readModel?.projectSkills ?? []
-      : readModel?.globalSkills ?? [];
+  const groups = allTargetGroups(readModel).filter((group) => group.scope === targetScope);
 
   return groups
     .filter((group) => targetAllows(group, "applyable"))
@@ -2183,7 +2214,8 @@ function targetChoices({ readModel, targetScope, source = null }) {
 }
 
 function globalRepositoryChoices(readModel) {
-  return (readModel?.globalSkills ?? [])
+  return allTargetGroups(readModel)
+    .filter((group) => group.scope === "global")
     .filter((group) => group.origin !== "standard")
     .map((group) => ({
     label: group.targetId,
@@ -2198,7 +2230,7 @@ function globalRepositoryChoices(readModel) {
 function projectRepositoryChoices(readModel) {
   const choicesByPattern = new Map();
 
-  for (const group of readModel?.projectSkills ?? []) {
+  for (const group of allTargetGroups(readModel).filter((entry) => entry.scope === "project")) {
     if (group.origin === "standard") {
       continue;
     }
@@ -2222,7 +2254,7 @@ function projectRepositoryChoices(readModel) {
 
 function operationalTargetChoices({ readModel, commandId }) {
   const capability = capabilityForCommand(commandId);
-  return [...(readModel?.globalSkills ?? []), ...(readModel?.projectSkills ?? [])]
+  return allTargetGroups(readModel)
     .filter((group) => targetAllows(group, capability))
     .map(
     (group) => ({
@@ -2293,8 +2325,7 @@ function skillDetailChoices(readModel) {
   }));
 
   const appliedItems = [
-    ...(readModel?.globalSkills ?? []),
-    ...(readModel?.projectSkills ?? []),
+    ...allTargetGroups(readModel),
   ].flatMap((group) =>
     appliedSkillChoices(group).map((choice) => ({
       ...choice,
@@ -2460,9 +2491,16 @@ function targetGroupForTarget({ readModel, target }) {
     return null;
   }
 
-  return [...(readModel?.globalSkills ?? []), ...(readModel?.projectSkills ?? [])].find(
+  return allTargetGroups(readModel).find(
     (group) => group.targetId === target.id,
   );
+}
+
+function allTargetGroups(readModel) {
+  if (Array.isArray(readModel?.targetGroups)) {
+    return readModel.targetGroups;
+  }
+  return [...(readModel?.globalSkills ?? []), ...(readModel?.projectSkills ?? [])];
 }
 
 function targetFromGroup(group) {
@@ -2483,6 +2521,12 @@ function targetFromGroup(group) {
   }
 
   return target;
+}
+
+function omitUndefinedTargetFields(target) {
+  return Object.fromEntries(
+    Object.entries(target ?? {}).filter(([, value]) => value !== undefined),
+  );
 }
 
 function targetPatternFromGroup(group) {

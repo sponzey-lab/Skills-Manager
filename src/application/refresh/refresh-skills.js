@@ -121,7 +121,7 @@ export async function refreshSkills({
       unavailableTargetCount += 1;
     }
 
-    const skills = await Promise.all(
+    const mappedSkills = await Promise.all(
       targetResult.appliedSkills.map((appliedSkill) =>
         mapAppliedSkill({
           appliedSkill,
@@ -133,30 +133,18 @@ export async function refreshSkills({
         }),
       ),
     );
+    const skills = mappedSkills.map((result) => result.skill);
+    diagnostics.push(
+      ...mappedSkills.flatMap((result) =>
+        result.diagnostics.map((diagnostic) => ({
+          ...diagnostic,
+          targetId: target.id,
+          targetPath: normalizePath(target.targetPath),
+        })),
+      ),
+    );
 
-    const group = {
-      targetId: target.id,
-      clientType: target.clientType,
-      scope: target.scope,
-      targetPath: normalizePath(target.targetPath),
-      skills,
-    };
-
-    if (target.origin !== undefined) {
-      group.origin = target.origin;
-    }
-
-    if (target.capabilities !== undefined) {
-      group.capabilities = target.capabilities;
-    }
-
-    if (target.workspacePath !== undefined) {
-      group.workspacePath = normalizePath(target.workspacePath);
-    }
-
-    if (target.targetPattern !== undefined) {
-      group.targetPattern = target.targetPattern;
-    }
+    const group = buildTargetSkillGroup({ target, skills });
 
     appliedSkillCount += group.skills.length;
     events.push({
@@ -224,8 +212,9 @@ export async function refreshSkills({
 
   const readModel = {
     mainRepositorySkills,
-    globalSkills,
-    projectSkills,
+    globalSkills: aggregateTargetSkillGroups({ groups: globalSkills }),
+    projectSkills: aggregateTargetSkillGroups({ groups: projectSkills }),
+    targetGroups: [...globalSkills, ...projectSkills],
     diagnostics,
   };
 
@@ -243,6 +232,103 @@ export async function refreshSkills({
     events,
     steps: [...steps, "Completed"],
   };
+}
+
+/**
+ * Converts an already-scanned target and its mapped placements into the
+ * application read-model boundary. It performs no I/O and preserves optional
+ * target metadata so later aggregation can replace grouping without changing
+ * target-specific operations.
+ */
+export function buildTargetSkillGroup({ target, skills }) {
+  const group = {
+    targetId: target.id,
+    clientType: target.clientType,
+    scope: target.scope,
+    targetPath: normalizePath(target.targetPath),
+    skills,
+  };
+
+  if (target.origin !== undefined) {
+    group.origin = target.origin;
+  }
+
+  if (target.capabilities !== undefined) {
+    group.capabilities = target.capabilities;
+  }
+
+  if (target.workspacePath !== undefined) {
+    group.workspacePath = normalizePath(target.workspacePath);
+  }
+
+  if (target.targetPattern !== undefined) {
+    group.targetPattern = target.targetPattern;
+  }
+
+  return group;
+}
+
+/**
+ * Converts target-local scan groups into display rows without losing the
+ * placement DTO required by target-specific commands. Managed rows are keyed
+ * only by stable source identity; unresolved/external rows remain distinct
+ * until a content-hash identity is available.
+ */
+export function aggregateTargetSkillGroups({ groups }) {
+  const rowsByIdentity = new Map();
+  let unresolvedIndex = 0;
+  for (const group of groups ?? []) {
+    for (const skill of group.skills ?? []) {
+      if (skill.kind === "broken-symlink") {
+        continue;
+      }
+      const identity = managedKind(skill.kind) && skill.sourceId
+        ? `managed:${skill.sourceId}`
+        : typeof skill.contentHash === "string" && skill.contentHash.length > 0
+          ? `external:${normalizeExternalName(skill.name)}:${skill.contentHash}`
+          : `unresolved:${unresolvedIndex++}`;
+      const placement = {
+        targetId: group.targetId,
+        clientType: group.clientType,
+        scope: group.scope,
+        targetPath: group.targetPath,
+        appliedSkill: skill,
+      };
+      if (group.workspacePath !== undefined) placement.workspacePath = group.workspacePath;
+      if (group.targetPattern !== undefined) placement.targetPattern = group.targetPattern;
+      if (group.origin !== undefined) placement.origin = group.origin;
+      if (group.capabilities !== undefined) placement.capabilities = group.capabilities;
+      const existing = rowsByIdentity.get(identity);
+      if (existing) {
+        existing.placements.push(placement);
+        continue;
+      }
+      rowsByIdentity.set(identity, {
+        id: identity,
+        name: skill.name,
+        kind: managedKind(skill.kind) && skill.sourceId ? "managed" : "external",
+        status: managedKind(skill.kind) && skill.sourceId ? "managed" : skill.status,
+        sourceId: skill.sourceId ?? null,
+        clientBadges: [],
+        placements: [placement],
+      });
+    }
+  }
+  return [...rowsByIdentity.values()]
+    .map((row) => ({
+      ...row,
+      clientBadges: [...new Set(row.placements.map((placement) => placement.clientType).filter(Boolean))].sort(),
+      placements: [...row.placements].sort((left, right) =>
+        `${left.clientType}:${left.targetId}:${left.appliedSkill.targetPath}`.localeCompare(
+          `${right.clientType}:${right.targetId}:${right.appliedSkill.targetPath}`,
+        ),
+      ),
+    }))
+    .sort((left, right) => `${left.name}:${left.id}`.localeCompare(`${right.name}:${right.id}`));
+}
+
+function normalizeExternalName(name) {
+  return typeof name === "string" ? name.trim().toLocaleLowerCase() : "unnamed";
 }
 
 function detectDuplicateTargetSkills(groups) {
@@ -715,6 +801,7 @@ async function mapAppliedSkill({
     ? sourceHashByPath.get(normalizedSourcePath) ?? null
     : null;
   const currentTargetHash = await hashAppliedTarget({ appliedSkill, hashPort });
+  const externalContentHash = await hashExternalTarget({ target, appliedSkill, hashPort });
 
   if (sourceId && managedKind(appliedSkill.kind)) {
     const mainSkill = mainSkillById.get(sourceId);
@@ -761,8 +848,43 @@ async function mapAppliedSkill({
     mapped.targetHash = currentTargetHash;
     mapped.lastCheckedAt = null;
   }
+  if (externalContentHash.hash) {
+    mapped.contentHash = externalContentHash.hash;
+  }
 
-  return mapped;
+  return {
+    skill: mapped,
+    diagnostics: externalContentHash.diagnostic ? [externalContentHash.diagnostic] : [],
+  };
+}
+
+async function hashExternalTarget({ target, appliedSkill, hashPort }) {
+  if (
+    managedKind(appliedSkill.kind) ||
+    appliedSkill.kind === "broken-symlink" ||
+    typeof hashPort?.hashDirectoryWithinRoot !== "function"
+  ) {
+    return { hash: null, diagnostic: null };
+  }
+  const hashResult = await hashPort.hashDirectoryWithinRoot({
+    rootPath: target.targetPath,
+    directoryPath: appliedSkill.targetPath,
+  });
+  if (hashResult.ok) {
+    return { hash: hashResult.hash, diagnostic: null };
+  }
+  return {
+    hash: null,
+    diagnostic: {
+      code: "external-content-hash-unavailable",
+      severity: "warning",
+      category: "target",
+      cause: hashResult.error?.code,
+      message: "External target content could not be hashed and was kept separate.",
+      recommendation: "Check that the target skill is readable and remains inside its target root.",
+      skillName: appliedSkill.name,
+    },
+  };
 }
 
 async function loadSourceHashes({ sources, hashPort }) {

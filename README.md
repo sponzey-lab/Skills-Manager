@@ -10,7 +10,7 @@ Sponzey Skills Manager is a VSCode extension for managing Agent Skills as explic
 - Repository registration supports Codex, Claude, or all supported agent clients.
 - Existing skills are discovered from Codex `$HOME/.agents/skills` and Claude `$HOME/.claude/skills` by default.
 - Workspace skills are discovered from `.agents/skills` and `.claude/skills` for enabled clients.
-- Applied Global and Project skill rows show an agent badge icon for Codex or Claude.
+- Global Skills is a flat list that renders detected AI client SVG images to the right of each skill name. Codex/OpenAI, Claude, Gemini, GitHub Copilot, Cursor, Perplexity, Mistral, DeepSeek, Meta AI, Hugging Face, and Ollama use target-specific marks; unsupported clients share one custom generic icon. It does not render a generated aggregate icon on the left.
 - Project Skills are shown when VSCode has a folder or workspace open, and hidden for file-only windows.
 - Applied skills can be managed copies, managed symlinks, external folders, external symlinks, or broken symlinks.
 - Remove means removing an applied target entry.
@@ -36,11 +36,12 @@ Sponzey Skills Manager is a VSCode extension for managing Agent Skills as explic
 
 ## Apply And Remove
 
-- Use `Sponzey Skills: Apply Skill to Global Target` to apply a source skill to a global target.
+- Use `Sponzey Skills: Apply Skill to Global Target` to select a source and mode, then create a persistent Global enrollment. It applies the source to every current applyable Global target and reconciles newly registered targets later; it does not ask you to choose just one Global client.
 - Standard Codex and Claude global targets are available without persisting duplicate target settings.
 - Use `Sponzey Skills: Apply Skill to Project Target` to apply a source skill to a workspace project target.
-- Applied Global and Project skill rows show a Codex or Claude badge and avoid grouping skills under repository folder nodes.
+- Applied Global and Project rows avoid target-folder grouping and target child rows. Right-click a managed Global row and use `Remove Global Skill Enrollment` to remove that source from every enrolled Global client while preserving its Main Repository source.
 - Use `Sponzey Skills: Remove Applied Skill` to remove the applied target entry without deleting the source.
+- Use `Sponzey Skills: Delete Source Skill` to choose either managed-target cleanup or source-only deletion. Cleanup scans current Global and Project targets, removes only exact managed placements, verifies their absence, and then deletes the source. Source-only deletion stops future Global enrollment but deliberately leaves target copies in place; restart the affected client (including Codex) if it continues to show a cached deleted skill.
 
 ## Backup, Copy, Move, And Promote
 
@@ -62,6 +63,7 @@ Sponzey Skills Manager is a VSCode extension for managing Agent Skills as explic
 - If the Main Repository is missing, the extension recreates `~/SponzeySkills` on the next command that needs a source repository.
 - Missing standard target directories are treated as empty; they do not prevent the other client from loading.
 - An unreadable target or damaged entry appears in Diagnostics while readable skills remain visible. Check the target permission or broken link and refresh.
+- External skills with the same name are grouped only when their content hashes also match. If a target-root-bounded hash cannot be read, the skills remain separate and Diagnostics explains why.
 - `$HOME/.codex/skills` is not added automatically. When explicitly registered for migration, it is discovery/copy/backup-only and is excluded from apply, remove, move, and restore target choices.
 - If a newly applied Codex global skill does not appear in another Codex instance, restart Codex or start a new Codex session so it rescans `$HOME/.agents/skills`.
 - If a newly applied Claude global skill does not appear in another Claude session, restart Claude or start a new Claude session so it rescans `$HOME/.claude/skills`.

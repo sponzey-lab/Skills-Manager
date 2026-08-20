@@ -13,17 +13,21 @@ import {
   convertAppliedSkillMode,
   deleteBackup,
   deleteSourceSkill,
+  enrollSkillGlobally,
   exportSourceSkill,
   getSkillDetail,
   importSkillToMainRepository,
   importSkillArchiveToMainRepository,
   installSkillToMainRepository,
   listSkillBackups,
+  migrateExistingGlobalEnrollments,
   moveAppliedSkillToMainRepository,
   openMainRepository,
   openSkillPath,
   promoteBackupToSkillSource,
   renameSourceSkill,
+  reconcileGlobalSkillEnrollments,
+  removeGlobalSkillEnrollment,
   removeGlobalRepository,
   refreshSkills,
   removeAppliedSkill,
@@ -38,6 +42,7 @@ import {
   FileSystemAnalysisStore,
   FileSystemBackupComparisonPort,
   FileSystemHashPort,
+  FileSystemGlobalSkillEnrollmentStore,
   FileSystemRepositoryIndexStore,
   FileSystemSkillRepository,
   FileSystemTargetStore,
@@ -88,6 +93,11 @@ export async function createExtensionComposition({
     : usesDefaultSkillRepository
       ? new FileSystemRepositoryIndexStore()
       : null;
+  const globalEnrollmentStore = Object.hasOwn(adapters, "globalEnrollmentStore")
+    ? adapters.globalEnrollmentStore
+    : usesDefaultSkillRepository
+      ? new FileSystemGlobalSkillEnrollmentStore()
+      : null;
   const versionControlPort = Object.hasOwn(adapters, "versionControlPort")
     ? adapters.versionControlPort
     : usesDefaultSkillRepository
@@ -115,12 +125,22 @@ export async function createExtensionComposition({
     settingsWriter: adapters.settingsWriter,
     repositoryOpener: adapters.repositoryOpener,
     auditStore: adapters.auditStore,
+    globalEnrollmentStore,
+  });
+  const globalEnrollmentLifecycle = await runGlobalEnrollmentLifecycle({
+    context,
+    globalEnrollmentStore,
+    skillRepository,
+    targetStore,
+    analyzer: skillAnalyzer,
+    enrollmentMutationNotifier: adapters.enrollmentMutationNotifier,
   });
 
   return {
     ok: true,
     context,
     diagnostics: runtimeContextResult.diagnostics,
+    globalEnrollmentLifecycle,
     commandHandlers: createUseCaseCommandHandlers({
       async getContext() {
         return context;
@@ -128,6 +148,44 @@ export async function createExtensionComposition({
       useCases,
     }),
   };
+}
+
+async function runGlobalEnrollmentLifecycle({
+  context,
+  globalEnrollmentStore,
+  skillRepository,
+  targetStore,
+  analyzer,
+  enrollmentMutationNotifier,
+}) {
+  if (!globalEnrollmentStore) {
+    return null;
+  }
+
+  const migration = await migrateExistingGlobalEnrollments({
+    context,
+    skillRepository,
+    targetStore,
+    enrollmentStore: globalEnrollmentStore,
+  });
+  if (!migration.ok) {
+    return { migration, reconciliation: null, refreshRequested: false };
+  }
+
+  const reconciliation = await reconcileGlobalSkillEnrollments({
+    context,
+    skillRepository,
+    targetStore,
+    analyzer,
+    enrollmentStore: globalEnrollmentStore,
+  });
+  const refreshRequested = Boolean(
+    migration.migration?.wroteEnrollments || reconciliation.reconciliation?.wroteEnrollments,
+  );
+  if (refreshRequested && typeof enrollmentMutationNotifier === "function") {
+    await enrollmentMutationNotifier();
+  }
+  return { migration, reconciliation, refreshRequested };
 }
 
 function createSettingsUseCaseBundle({ settingsWriter, skillRepository }) {
@@ -185,6 +243,7 @@ function createUseCaseBundle({
   settingsWriter,
   repositoryOpener,
   auditStore,
+  globalEnrollmentStore,
 }) {
   const useCases = {
     ...createSettingsUseCaseBundle({ settingsWriter, skillRepository }),
@@ -308,6 +367,8 @@ function createUseCaseBundle({
         context,
         input,
         skillRepository,
+        targetStore,
+        enrollmentStore: globalEnrollmentStore,
       });
     },
     async exportSourceSkill({ context, input }) {
@@ -369,11 +430,33 @@ function createUseCaseBundle({
         skillSourceResolver,
         analyzer,
       });
-    useCases.applySkillToTarget = async ({ context, input }) =>
-      applySkillToTarget({
+    useCases.applySkillToTarget = async ({ context, input }) => {
+      if (input?.target?.scope === "global" && globalEnrollmentStore) {
+        return enrollSkillGlobally({
+          context,
+          input,
+          skillRepository,
+          enrollmentStore: globalEnrollmentStore,
+          analyzer,
+          targetStore,
+        });
+      }
+      return applySkillToTarget({
         context,
         input,
         analyzer,
+        targetStore,
+      });
+    };
+  }
+
+  if (globalEnrollmentStore) {
+    useCases.removeGlobalSkillEnrollment = async ({ context, input }) =>
+      removeGlobalSkillEnrollment({
+        context,
+        input,
+        skillRepository,
+        enrollmentStore: globalEnrollmentStore,
         targetStore,
       });
   }

@@ -1,7 +1,138 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { refreshSkills } from "../../src/application/refresh/refresh-skills.js";
+import {
+  aggregateTargetSkillGroups,
+  buildTargetSkillGroup,
+  refreshSkills,
+} from "../../src/application/refresh/refresh-skills.js";
+
+test("buildTargetSkillGroup preserves target placement metadata without I/O", () => {
+  const group = buildTargetSkillGroup({
+    target: {
+      id: "global:codex",
+      clientType: "codex",
+      scope: "global",
+      targetPath: "/global//skills/",
+      origin: "standard",
+      capabilities: { applyable: true },
+      workspacePath: "/workspace/",
+      targetPattern: ".agents/skills",
+    },
+    skills: [{ name: "alpha", kind: "managed-symlink" }],
+  });
+
+  assert.deepEqual(group, {
+    targetId: "global:codex",
+    clientType: "codex",
+    scope: "global",
+    targetPath: "/global/skills",
+    skills: [{ name: "alpha", kind: "managed-symlink" }],
+    origin: "standard",
+    capabilities: { applyable: true },
+    workspacePath: "/workspace",
+    targetPattern: ".agents/skills",
+  });
+});
+
+test("aggregateTargetSkillGroups merges exact managed source identities and retains target-specific placements", () => {
+  const result = aggregateTargetSkillGroups({
+    groups: [
+      buildTargetSkillGroup({
+        target: { id: "global:codex", clientType: "codex", scope: "global", targetPath: "/codex" },
+        skills: [{ name: "alpha", kind: "managed-copy", status: "managed", targetPath: "/codex/alpha", sourceId: "source:alpha" }],
+      }),
+      buildTargetSkillGroup({
+        target: { id: "global:claude", clientType: "claude", scope: "global", targetPath: "/claude" },
+        skills: [{ name: "alpha", kind: "managed-symlink", status: "managed", targetPath: "/claude/alpha", sourceId: "source:alpha" }],
+      }),
+    ],
+  });
+
+  assert.deepEqual(result, [{
+    id: "managed:source:alpha",
+    name: "alpha",
+    kind: "managed",
+    status: "managed",
+    sourceId: "source:alpha",
+    clientBadges: ["claude", "codex"],
+    placements: [
+      { targetId: "global:claude", clientType: "claude", scope: "global", targetPath: "/claude", appliedSkill: { name: "alpha", kind: "managed-symlink", status: "managed", targetPath: "/claude/alpha", sourceId: "source:alpha" } },
+      { targetId: "global:codex", clientType: "codex", scope: "global", targetPath: "/codex", appliedSkill: { name: "alpha", kind: "managed-copy", status: "managed", targetPath: "/codex/alpha", sourceId: "source:alpha" } },
+    ],
+  }]);
+});
+
+test("aggregateTargetSkillGroups merges external placements only when normalized names and content hashes match", () => {
+  const result = aggregateTargetSkillGroups({
+    groups: [
+      buildTargetSkillGroup({ target: { id: "global:codex", clientType: "codex", scope: "global", targetPath: "/codex" }, skills: [{ name: " Alpha ", kind: "external", status: "external", targetPath: "/codex/alpha", sourceId: null, contentHash: "same" }] }),
+      buildTargetSkillGroup({ target: { id: "global:claude", clientType: "claude", scope: "global", targetPath: "/claude" }, skills: [{ name: "alpha", kind: "external", status: "external", targetPath: "/claude/alpha", sourceId: null, contentHash: "same" }] }),
+      buildTargetSkillGroup({ target: { id: "global:other", clientType: "other", scope: "global", targetPath: "/other" }, skills: [{ name: "alpha", kind: "external", status: "external", targetPath: "/other/alpha", sourceId: null, contentHash: "different" }] }),
+    ],
+  });
+
+  assert.equal(result.length, 2);
+  assert.equal(result[0].placements.length, 2);
+  assert.equal(result[0].id, "external:alpha:same");
+  assert.equal(result[1].id, "external:alpha:different");
+});
+
+test("refreshSkills hashes readable external target content before aggregating same-name placements", async () => {
+  const result = await refreshSkills({
+    context: {
+      mainRepositoryPath: "/repo",
+      globalTargets: [
+        { id: "global:codex", clientType: "codex", scope: "global", targetPath: "/codex" },
+        { id: "global:claude", clientType: "claude", scope: "global", targetPath: "/claude" },
+      ],
+      projectTargets: [],
+    },
+    skillRepository: { async scanSourceSkills() { return { ok: true, sources: [] }; } },
+    targetStore: {
+      async scanAppliedSkills({ targetPath }) {
+        return { ok: true, appliedSkills: [{ name: "external", kind: "external", targetPath: `${targetPath}/external` }], diagnostics: [] };
+      },
+    },
+    hashPort: {
+      async hashDirectoryWithinRoot({ rootPath, directoryPath }) {
+        assert.equal(directoryPath, `${rootPath}/external`);
+        return { ok: true, hash: "shared-external-content" };
+      },
+    },
+  });
+
+  assert.equal(result.readModel.globalSkills.length, 1);
+  assert.equal(result.readModel.globalSkills[0].id, "external:external:shared-external-content");
+  assert.deepEqual(result.readModel.globalSkills[0].clientBadges, ["claude", "codex"]);
+});
+
+test("refreshSkills keeps same-name external placements separate and reports a diagnostic when target-bound hashing fails", async () => {
+  const result = await refreshSkills({
+    context: {
+      mainRepositoryPath: "/repo",
+      globalTargets: [
+        { id: "global:codex", clientType: "codex", scope: "global", targetPath: "/codex" },
+        { id: "global:claude", clientType: "claude", scope: "global", targetPath: "/claude" },
+      ],
+      projectTargets: [],
+    },
+    skillRepository: { async scanSourceSkills() { return { ok: true, sources: [] }; } },
+    targetStore: {
+      async scanAppliedSkills({ targetPath }) {
+        return { ok: true, appliedSkills: [{ name: "external", kind: "external", targetPath: `${targetPath}/external` }], diagnostics: [] };
+      },
+    },
+    hashPort: {
+      async hashDirectoryWithinRoot() {
+        return { ok: false, error: { code: "directory-hash-outside-target-root" } };
+      },
+    },
+  });
+
+  assert.equal(result.readModel.globalSkills.length, 2);
+  assert.equal(result.readModel.diagnostics.filter((diagnostic) => diagnostic.code === "external-content-hash-unavailable").length, 2);
+});
 
 test("refreshSkills marks main repository sources inactive before explicit apply", async () => {
   const calls = [];
@@ -682,46 +813,12 @@ test("refreshSkills aggregates managed, external, and broken target read models"
       ],
     ],
   );
-  assert.deepEqual(result.readModel.globalSkills, [
-    {
-      targetId: "global:codex",
-      clientType: "codex",
-      scope: "global",
-      targetPath: "/global",
-      skills: [
-        {
-          name: "alpha",
-          kind: "managed-symlink",
-          status: "managed",
-          targetPath: "/global/alpha",
-          sourceId: "alpha",
-        },
-        {
-          name: "beta-copy",
-          kind: "managed-copy",
-          status: "managed",
-          targetPath: "/global/beta-copy",
-          sourceId: "beta",
-        },
-        {
-          name: "external",
-          kind: "external",
-          status: "external",
-          targetPath: "/global/external",
-          sourceId: null,
-        },
-      ],
-    },
+  assert.deepEqual(result.readModel.globalSkills.map((skill) => [skill.id, skill.name, skill.placements.length]), [
+    ["managed:alpha", "alpha", 1],
+    ["managed:beta", "beta-copy", 1],
+    ["unresolved:0", "external", 1],
   ]);
-  assert.deepEqual(result.readModel.projectSkills[0].skills, [
-    {
-      name: "broken",
-      kind: "broken-symlink",
-      status: "broken",
-      targetPath: "/workspace/.agents/skills/broken",
-      sourceId: null,
-    },
-  ]);
+  assert.deepEqual(result.readModel.projectSkills, []);
   assert.deepEqual(result.readModel.diagnostics, [
     {
       code: "broken-symlink",
@@ -1023,16 +1120,9 @@ test("refreshSkills preserves a successful Claude target when the Codex target i
   });
 
   assert.equal(result.ok, true);
-  assert.deepEqual(
-    result.readModel.globalSkills.map((group) => [
-      group.clientType,
-      group.skills.map((skill) => skill.name),
-    ]),
-    [
-      ["codex", []],
-      ["claude", ["claude-existing"]],
-    ],
-  );
+  assert.deepEqual(result.readModel.globalSkills.map((skill) => [skill.name, skill.clientBadges]), [
+    ["claude-existing", ["claude"]],
+  ]);
   assert.equal(result.readModel.diagnostics[0].code, "target-unavailable");
   assert.equal(result.readModel.diagnostics[0].targetId, "global:codex");
   assert.equal(
@@ -1086,12 +1176,7 @@ test("refreshSkills keeps duplicate same-client target skills and reports their 
 
   assert.equal(result.ok, true);
   assert.equal(result.readModel.globalSkills.length, 2);
-  assert.equal(
-    result.readModel.globalSkills.every(
-      (group) => group.skills[0].name === "shared",
-    ),
-    true,
-  );
+  assert.equal(result.readModel.globalSkills.every((skill) => skill.name === "shared"), true);
   assert.equal(
     result.readModel.diagnostics.some(
       (diagnostic) =>

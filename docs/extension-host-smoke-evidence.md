@@ -115,6 +115,15 @@ Screenshot은 private path, secret, token, user file content를 노출하지 않
 - 연기 항목: 없음
 - 검증자 메모: 실제 사용자 스킬 경로는 수정하지 않았으며 수동 fixture는 `/tmp`에 격리했다.
 
+## 8. Global enrollment 확장 재검증 (2026-08-19)
+
+- 상태: blocked
+- 자동 검증: pass (`npm test` 393, `npm run build`, `npm run check:manifest`, `git diff --check`, `npm run release:gate`)
+- Extension Host 실행: `SKIP_BUILD=1 scripts/run-vscode-extension-host.sh <workspace>`로 새 VSCode 창을 열었다.
+- 차단 원인: 해당 창의 macOS accessibility tree가 workbench content를 노출하지 않아 command palette와 Sponzey Activity Bar를 신뢰성 있게 조작하거나 관찰할 수 없었다. 기존 이 문서의 수동 결과는 이전 scope의 evidence이며 새 enrollment/composite-icon flow의 pass 증거로 사용하지 않는다.
+- 미확인 항목: multi-client aggregate AI icon, 우클릭 Global enrollment apply/remove, cleanup/source-only의 실제 host refresh, Codex 새 session 재탐색.
+- 후속: 접근 가능한 Extension Development Host에서 `docs/release-smoke.md` §6의 새 항목을 실행하고 이 절을 `completed`/`pass`로 갱신한다.
+
 허용 판단 값:
 
 - ready

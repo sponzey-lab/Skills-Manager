@@ -1,4 +1,5 @@
 import { confirmationRequiredDiagnostic } from "../confirmation/confirmation-diagnostics.js";
+import { createAppliedSkillPlacement, createGlobalSkillEnrollment } from "../../domain/index.js";
 
 export async function getSkillDetail({ input, skillRepository, targetStore }) {
   const diagnostic = input?.diagnostic;
@@ -596,7 +597,13 @@ export async function renameSourceSkill({ context, input, skillRepository }) {
   });
 }
 
-export async function deleteSourceSkill({ context, input, skillRepository }) {
+export async function deleteSourceSkill({
+  context,
+  input,
+  skillRepository,
+  targetStore,
+  enrollmentStore,
+}) {
   if (
     sourceAppliedTargetCount(input?.source) > 0 &&
     input?.impactConfirmed !== true
@@ -626,6 +633,25 @@ export async function deleteSourceSkill({ context, input, skillRepository }) {
     );
   }
 
+  if (targetStore && input?.cleanupManagedPlacements === true) {
+    return deleteSourceAfterManagedPlacementCleanup({
+      context,
+      input,
+      skillRepository,
+      targetStore,
+      enrollmentStore,
+    });
+  }
+  if (targetStore && input?.cleanupManagedPlacements === false) {
+    return deleteSourceOnlyAfterAuthoritativeScan({
+      context,
+      input,
+      skillRepository,
+      targetStore,
+      enrollmentStore,
+    });
+  }
+
   return repositoryMutation({
     eventCode: "skill.source.delete.completed",
     unavailableCode: "source-delete-unavailable",
@@ -637,6 +663,325 @@ export async function deleteSourceSkill({ context, input, skillRepository }) {
     },
     steps: ["ValidatingInput", "DeletingSource"],
   });
+}
+
+async function deleteSourceOnlyAfterAuthoritativeScan({
+  context,
+  input,
+  skillRepository,
+  targetStore,
+  enrollmentStore,
+}) {
+  const source = input?.source;
+  if (!source?.id || !source?.sourcePath) {
+    return failure("skill.source.delete.failed", {
+      code: "source-delete-source-only-source-identity-required",
+      severity: "error",
+      category: "source-delete",
+      message: "Source-only deletion requires an identified source.",
+    }, ["ValidatingInput", "ValidationFailed"]);
+  }
+  const discovery = await discoverManagedSourcePlacements({ context, source, targetStore });
+  if (!discovery.ok) {
+    return failure("skill.source.delete.failed", discovery.error, [
+      "LoadingAuthoritativePlacements",
+      "TargetScanFailed",
+    ]);
+  }
+  const deleted = await repositoryMutation({
+    eventCode: "skill.source.delete.completed",
+    unavailableCode: "source-delete-unavailable",
+    methodName: "deleteSourceSkill",
+    skillRepository,
+    input: { repositoryPath: context.mainRepositoryPath, skillName: input?.skillName ?? source.name },
+    steps: ["DeletingSource"],
+  });
+  if (!deleted.ok) {
+    return deleted;
+  }
+  const diagnostics = [...discovery.diagnostics];
+  if (enrollmentStore) {
+    const enrollmentResult = await disableGlobalEnrollmentForDeletedSource({
+      context,
+      source,
+      enrollmentStore,
+    });
+    if (!enrollmentResult.ok) {
+      diagnostics.push(enrollmentResult.error);
+    }
+  }
+  if (discovery.placements.length > 0) {
+    diagnostics.push({
+      code: "source-delete-source-only-managed-placement-remains",
+      severity: "warning",
+      category: "source-delete",
+      message: "Managed target entries were deliberately retained; restart the affected client if it continues to cache the deleted skill.",
+    });
+  }
+  return {
+    ...deleted,
+    sourceDeletion: {
+      deleted: true,
+      removedManagedPlacementCount: 0,
+      remainingManagedPlacementCount: discovery.placements.length,
+    },
+    diagnostics,
+    steps: ["LoadingAuthoritativePlacements", "DeletingSource", "DisablingGlobalEnrollment", "Completed"],
+  };
+}
+
+async function disableGlobalEnrollmentForDeletedSource({ context, source, enrollmentStore }) {
+  if (typeof enrollmentStore.readGlobalSkillEnrollments !== "function" || typeof enrollmentStore.writeGlobalSkillEnrollments !== "function") {
+    return { ok: false, error: { code: "source-delete-source-only-enrollment-store-unavailable", severity: "warning", category: "source-delete", message: "Global enrollment could not be disabled after source-only deletion." } };
+  }
+  const readResult = await enrollmentStore.readGlobalSkillEnrollments({ repositoryPath: context.mainRepositoryPath });
+  if (!readResult.ok) return { ok: false, error: readResult.error };
+  const enrollments = (readResult.enrollments ?? []).filter((entry) => entry.sourceSkillId !== source.id);
+  const writeResult = await enrollmentStore.writeGlobalSkillEnrollments({ repositoryPath: context.mainRepositoryPath, enrollments });
+  return writeResult.ok ? { ok: true } : { ok: false, error: writeResult.error };
+}
+
+async function deleteSourceAfterManagedPlacementCleanup({
+  context,
+  input,
+  skillRepository,
+  targetStore,
+  enrollmentStore,
+}) {
+  const source = input?.source;
+  if (!source?.id || !source?.sourcePath) {
+    return failure(
+      "skill.source.delete.failed",
+      {
+        code: "source-delete-cleanup-source-identity-required",
+        severity: "error",
+        category: "source-delete",
+        message: "Managed placement cleanup requires an identified source.",
+      },
+      ["ValidatingInput", "ValidationFailed"],
+    );
+  }
+  if (typeof targetStore.scanAppliedSkills !== "function" || typeof targetStore.removeTargetEntry !== "function") {
+    return failure(
+      "skill.source.delete.failed",
+      {
+        code: "source-delete-cleanup-target-store-unavailable",
+        severity: "error",
+        category: "source-delete",
+        message: "Managed placement cleanup is unavailable.",
+      },
+      ["ValidatingInput", "TargetStoreUnavailable"],
+    );
+  }
+
+  const discovery = await discoverManagedSourcePlacements({ context, source, targetStore });
+  if (!discovery.ok) {
+    return failure("skill.source.delete.failed", discovery.error, [
+      "ValidatingInput",
+      "LoadingAuthoritativePlacements",
+      "TargetScanFailed",
+    ]);
+  }
+
+  const diagnostics = [...discovery.diagnostics];
+  const enrollmentPreparation = await prepareGlobalEnrollmentForSourceDeletion({
+    context,
+    source,
+    placements: discovery.placements,
+    enrollmentStore,
+  });
+  if (!enrollmentPreparation.ok) {
+    return failure("skill.source.delete.failed", enrollmentPreparation.error, [
+      "LoadingAuthoritativePlacements",
+      "PreparingDeletionPending",
+      "EnrollmentWriteFailed",
+    ]);
+  }
+  const remaining = [];
+  let removedManagedPlacementCount = 0;
+  for (const placement of discovery.placements) {
+    const removeResult = await targetStore.removeTargetEntry({
+      targetPath: placement.appliedSkill.targetPath,
+    });
+    if (!removeResult.ok) {
+      diagnostics.push(removeResult.error);
+      remaining.push(placement);
+      continue;
+    }
+
+    const verification = await targetStore.scanAppliedSkills({
+      targetPath: placement.target.targetPath,
+      knownSourcePaths: [source.sourcePath],
+    });
+    if (!verification.ok) {
+      diagnostics.push(verification.error);
+      remaining.push(placement);
+      continue;
+    }
+    if (hasExactManagedSourcePlacement({ appliedSkills: verification.appliedSkills, source })) {
+      diagnostics.push({
+        code: "source-delete-cleanup-verification-failed",
+        severity: "error",
+        category: "source-delete",
+        targetId: placement.target.id,
+        message: "Managed target placement remained after cleanup.",
+      });
+      remaining.push(placement);
+      continue;
+    }
+    removedManagedPlacementCount += 1;
+  }
+
+  if (remaining.length > 0) {
+    return {
+      ok: true,
+      sourceDeletion: {
+        deleted: false,
+        removedManagedPlacementCount,
+        remainingManagedPlacementCount: remaining.length,
+      },
+      diagnostics,
+      events: [{
+        level: "ProductLog",
+        code: "skill.source.delete.cleanup-pending",
+        sourceSkillId: source.id,
+        remainingManagedPlacementCount: remaining.length,
+      }],
+      steps: ["LoadingAuthoritativePlacements", "RemovingTargets", "VerificationFailed"],
+    };
+  }
+
+  const deleted = await repositoryMutation({
+    eventCode: "skill.source.delete.completed",
+    unavailableCode: "source-delete-unavailable",
+    methodName: "deleteSourceSkill",
+    skillRepository,
+    input: {
+      repositoryPath: context.mainRepositoryPath,
+      skillName: input?.skillName ?? source.name,
+    },
+    steps: ["DeletingSource"],
+  });
+  if (!deleted.ok) {
+    return deleted;
+  }
+  if (enrollmentPreparation.enrollments) {
+    const writeResult = await enrollmentStore.writeGlobalSkillEnrollments({
+      repositoryPath: context.mainRepositoryPath,
+      enrollments: enrollmentPreparation.enrollments.filter(
+        (enrollment) => enrollment.sourceSkillId !== source.id,
+      ),
+    });
+    if (!writeResult.ok) {
+      diagnostics.push(writeResult.error);
+    }
+  }
+  return {
+    ...deleted,
+    sourceDeletion: {
+      deleted: true,
+      removedManagedPlacementCount,
+      remainingManagedPlacementCount: 0,
+    },
+    diagnostics,
+    steps: ["LoadingAuthoritativePlacements", "RemovingTargets", "VerifyingTargets", "DeletingSource", "Completed"],
+  };
+}
+
+async function prepareGlobalEnrollmentForSourceDeletion({ context, source, placements, enrollmentStore }) {
+  if (!enrollmentStore) {
+    return { ok: true, enrollments: null };
+  }
+  if (typeof enrollmentStore.readGlobalSkillEnrollments !== "function" || typeof enrollmentStore.writeGlobalSkillEnrollments !== "function") {
+    return {
+      ok: false,
+      error: {
+        code: "source-delete-cleanup-enrollment-store-unavailable",
+        severity: "error",
+        category: "source-delete",
+        message: "Global enrollment cleanup is unavailable.",
+      },
+    };
+  }
+  const readResult = await enrollmentStore.readGlobalSkillEnrollments({
+    repositoryPath: context.mainRepositoryPath,
+  });
+  if (!readResult.ok) {
+    return { ok: false, error: readResult.error };
+  }
+  const globalTargetIds = new Set((context.globalTargets ?? []).map((target) => target.id));
+  const globalPlacements = placements
+    .filter(({ target }) => globalTargetIds.has(target.id))
+    .map(({ target, appliedSkill }) => createAppliedSkillPlacement({
+      targetId: target.id,
+      applyMode: appliedSkill.kind === "managed-symlink" ? "symlink" : appliedSkill.metadata?.applyMode ?? "copy",
+    }).value);
+  const existing = (readResult.enrollments ?? []).find((entry) => entry.sourceSkillId === source.id);
+  if (!existing && globalPlacements.length === 0) {
+    return { ok: true, enrollments: readResult.enrollments ?? [] };
+  }
+  const pending = createGlobalSkillEnrollment({
+    ...(existing ?? {}),
+    sourceSkillId: source.id,
+    defaultApplyMode: existing?.defaultApplyMode ?? context.defaultApplyMode ?? "copy",
+    lifecycle: "deletion-pending",
+    placements: globalPlacements.length > 0 ? globalPlacements : existing?.placements ?? [],
+    remainingCleanupPlacements: globalPlacements,
+  });
+  if (!pending.ok) {
+    return { ok: false, error: pending.diagnostics[0] };
+  }
+  const enrollments = [
+    ...(readResult.enrollments ?? []).filter((entry) => entry.sourceSkillId !== source.id),
+    pending.value,
+  ];
+  const writeResult = await enrollmentStore.writeGlobalSkillEnrollments({
+    repositoryPath: context.mainRepositoryPath,
+    enrollments,
+  });
+  if (!writeResult.ok) {
+    return { ok: false, error: writeResult.error };
+  }
+  return { ok: true, enrollments };
+}
+
+async function discoverManagedSourcePlacements({ context, source, targetStore }) {
+  const placements = [];
+  const diagnostics = [];
+  for (const target of [...(context?.globalTargets ?? []), ...(context?.projectTargets ?? [])]) {
+    const result = await targetStore.scanAppliedSkills({
+      targetPath: target.targetPath,
+      knownSourcePaths: [source.sourcePath],
+    });
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
+    for (const appliedSkill of result.appliedSkills ?? []) {
+      if (isExactManagedSourcePlacement({ appliedSkill, source })) {
+        placements.push({ target, appliedSkill });
+      }
+    }
+    diagnostics.push(...(result.diagnostics ?? []));
+  }
+  return { ok: true, placements, diagnostics };
+}
+
+function hasExactManagedSourcePlacement({ appliedSkills, source }) {
+  return (appliedSkills ?? []).some((appliedSkill) =>
+    isExactManagedSourcePlacement({ appliedSkill, source }),
+  );
+}
+
+function isExactManagedSourcePlacement({ appliedSkill, source }) {
+  if (appliedSkill?.kind !== "managed-copy" && appliedSkill?.kind !== "managed-symlink") {
+    return false;
+  }
+  return appliedSkill.metadata?.sourceSkillId === source.id ||
+    normalizeSourcePath(appliedSkill.sourcePath ?? appliedSkill.metadata?.sourcePath) === normalizeSourcePath(source.sourcePath);
+}
+
+function normalizeSourcePath(path) {
+  return typeof path === "string" ? path.replace(/\\+/g, "/").replace(/\/+$/, "") : "";
 }
 
 export async function exportSourceSkill({ context, input, skillRepository }) {

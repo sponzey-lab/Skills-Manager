@@ -542,7 +542,7 @@ test("wrapCommandHandlersWithInputCollection does not call import handler after 
   assert.equal(result.diagnostics[0].code, "command-input-cancelled");
 });
 
-test("collectCommandInput prompts missing global apply source, target, and mode", async () => {
+test("collectCommandInput prompts missing global apply source and mode", async () => {
   const calls = [];
   const result = await collectCommandInput({
     commandId: "sponzeySkills.applySkillToGlobalTarget",
@@ -559,10 +559,6 @@ test("collectCommandInput prompts missing global apply source, target, and mode"
           },
         },
         {
-          label: "global:codex",
-          value: globalTarget(),
-        },
-        {
           label: "copy",
           value: "copy",
         },
@@ -575,7 +571,7 @@ test("collectCommandInput prompts missing global apply source, target, and mode"
 
   assert.deepEqual(
     calls.map((call) => call.options.placeHolder),
-    ["Select source skill", "Select global target", "Select apply mode"],
+    ["Select source skill", "Select apply mode"],
   );
   assert.deepEqual(result, {
     ok: true,
@@ -589,6 +585,28 @@ test("collectCommandInput prompts missing global apply source, target, and mode"
       applyMode: "copy",
     },
   });
+});
+
+test("collectCommandInput uses an internal Global trigger target without asking the user to select one", async () => {
+  const calls = [];
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.applySkillToGlobalTarget",
+    input: {},
+    window: fakeTransferWindow({
+      calls,
+      quickPickResponses: [
+        { label: "alpha", value: { id: "alpha", name: "alpha", sourcePath: "/repo/alpha" } },
+        { label: "copy", value: "copy" },
+      ],
+    }),
+    async loadReadModel() { return applyReadModel(); },
+  });
+
+  assert.deepEqual(calls.map((call) => call.options.placeHolder), [
+    "Select source skill",
+    "Select apply mode",
+  ]);
+  assert.equal(result.input.target.id, "global:codex");
 });
 
 test("collectCommandInput annotates apply targets with explicit compatibility", async () => {
@@ -611,10 +629,6 @@ test("collectCommandInput annotates apply targets with explicit compatibility", 
         {
           label: "alpha",
           value: sourceWithCompatibility,
-        },
-        {
-          label: "global:codex",
-          value: globalTarget(),
         },
         {
           label: "copy",
@@ -646,13 +660,7 @@ test("collectCommandInput annotates apply targets with explicit compatibility", 
     },
   });
 
-  assert.deepEqual(
-    calls[1].items.map((item) => [item.label, item.description]),
-    [
-      ["global:codex", "/global-codex · compatible"],
-      ["global:claude", "/global-claude · compatibility unknown"],
-    ],
-  );
+  assert.equal(result.input.target.id, "global:codex");
   assert.equal(result.ok, true);
 });
 
@@ -693,10 +701,6 @@ test("collectCommandInput excludes discovery-only compatibility targets from app
           label: "alpha",
           value: applyReadModel().mainRepositorySkills[0],
         },
-        {
-          label: "global:codex",
-          value: globalTarget(),
-        },
         { label: "copy", value: "copy" },
       ],
     }),
@@ -709,10 +713,7 @@ test("collectCommandInput excludes discovery-only compatibility targets from app
   });
 
   assert.equal(result.ok, true);
-  assert.deepEqual(
-    calls[1].items.map((item) => item.label),
-    ["global:codex"],
-  );
+  assert.equal(result.input.target.id, "global:codex");
 });
 
 test("collectCommandInput annotates apply targets from compatibility diagnostics and custom clients", async () => {
@@ -739,15 +740,6 @@ test("collectCommandInput annotates apply targets from compatibility diagnostics
         {
           label: "alpha",
           value: codexOnlySource,
-        },
-        {
-          label: "global:claude",
-          value: {
-            id: "global:claude",
-            clientType: "claude",
-            scope: "global",
-            targetPath: "/global-claude",
-          },
         },
         {
           label: "symlink",
@@ -786,14 +778,7 @@ test("collectCommandInput annotates apply targets from compatibility diagnostics
     },
   });
 
-  assert.deepEqual(
-    calls[1].items.map((item) => [item.label, item.description]),
-    [
-      ["global:codex", "/global-codex"],
-      ["global:claude", "/global-claude · compatibility warning"],
-      ["global:custom", "/global-custom · compatibility unknown"],
-    ],
-  );
+  assert.equal(result.input.target.id, "global:codex");
   assert.equal(result.ok, true);
 });
 
@@ -841,10 +826,6 @@ test("collectCommandInput keeps the source selected from a tree item", async () 
       calls,
       responses: [
         {
-          label: "global:codex",
-          value: globalTarget(),
-        },
-        {
           label: "copy",
           value: "copy",
         },
@@ -857,7 +838,7 @@ test("collectCommandInput keeps the source selected from a tree item", async () 
 
   assert.deepEqual(
     calls.map((call) => call.options.placeHolder),
-    ["Select global target", "Select apply mode"],
+    ["Select apply mode"],
   );
   assert.equal(result.ok, true);
   assert.equal(result.input.source, selectedSource);
@@ -2028,6 +2009,10 @@ test("collectCommandInput prompts source lifecycle rename, delete, and export in
       calls: deleteCalls,
       quickPickResponses: [
         {
+          label: "Delete source and clean up managed targets",
+          value: "cleanup",
+        },
+        {
           label: "Delete source skill",
           value: true,
         },
@@ -2081,8 +2066,8 @@ test("collectCommandInput prompts source delete impact confirmation for applied 
       calls,
       quickPickResponses: [
         {
-          label: "Delete source and leave applied targets unchanged",
-          value: true,
+          label: "Delete source and clean up managed targets",
+          value: "cleanup",
         },
         {
           label: "Delete source skill",
@@ -2096,7 +2081,7 @@ test("collectCommandInput prompts source delete impact confirmation for applied 
   assert.deepEqual(
     calls.map((call) => call.options.placeHolder),
     [
-      "Source 'alpha' is applied to targets. Continue?",
+      "Delete source 'alpha'? Managed targets will be checked before deletion.",
       "Delete source skill 'alpha'?",
     ],
   );
@@ -2108,8 +2093,26 @@ test("collectCommandInput prompts source delete impact confirmation for applied 
       appliedTargetCount: 1,
     },
     skillName: "alpha",
+    cleanupManagedPlacements: true,
     impactConfirmed: true,
     confirmationProvided: true,
+  });
+});
+
+test("collectCommandInput confirms Global enrollment removal for a selected source", async () => {
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.removeGlobalSkillEnrollment",
+    input: { source: { id: "alpha", name: "alpha", sourcePath: "/repo/alpha" } },
+    window: fakeTransferWindow({
+      calls: [],
+      quickPickResponses: [{ label: "Remove Global enrollment and managed Global placements", value: true }],
+      inputResponses: [],
+    }),
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    input: { sourceSkillId: "alpha", confirmationProvided: true },
   });
 });
 

@@ -51,14 +51,19 @@
 
 ## 6. Global 및 Project 적용
 
-- [ ] Apply to Global Target이 Codex, Claude, all supported clients 중 선택하게 한다.
+- [ ] Apply to Global Target이 persistent enrollment를 만들고 현재 applyable Global client 전체에 적용하며, 새 client target 등록 뒤 누락 placement를 자동 조정한다.
 - [ ] workspace folder가 열려 있을 때 Apply to Project Target이 Codex, Claude, all supported clients 중 선택하게 한다.
-- [ ] Global Skills row는 target folder grouping 대신 applied skill row에 Codex badge 또는 Claude badge를 표시한다.
-- [ ] Project Skills row는 target folder grouping 대신 applied skill row에 Codex badge 또는 Claude badge를 표시한다.
+- [ ] Global Skills는 target folder grouping과 target child 없이 source/hash aggregate row 한 행으로 표시한다. generated left icon은 없고, 스킬 이름 오른쪽에 Codex/OpenAI, Claude, Gemini, GitHub Copilot, Cursor, Perplexity, Mistral, DeepSeek, Meta AI, Hugging Face, Ollama 중 target에 맞는 SVG image를 표시한다. 미지원 AI는 공통 custom generic image를 사용한다.
+- [ ] Global Skills의 managed aggregate row를 우클릭하면 `Remove Global Skill Enrollment`가 표시되고, 확인 후 모든 enrolled Global placement만 해제한다.
+- [ ] Project Skills row는 target folder grouping과 target child 없이 source/hash aggregate row 한 행으로 표시한다.
 - [ ] Target Profile logic이 apply, scan, diagnostics, badge, compatibility 결정을 일관되게 만든다.
 - [ ] Managed copy, managed symlink, external folder, external symlink, broken symlink 상태가 구분된다.
+- [ ] 같은 이름 external은 readable content hash까지 같을 때만 한 행으로 합쳐지고, hash 실패·target root 밖 항목은 별도 행 및 Diagnostics로 유지된다. broken symlink는 active Global/Project row가 아니라 Diagnostics에만 표시된다.
 - [ ] Remove Applied Skill은 target entry만 제거하고 source skill을 삭제하지 않는다.
 - [ ] source delete와 applied remove는 command, prompt, command path가 분리되어 있다.
+- [ ] Delete Source Skill에서 cleanup을 선택하면 화면의 기존 applied count와 무관하게 현재 Global/Project target을 다시 스캔하고, exact managed copy/symlink만 제거·재검증한 뒤 source를 삭제한다.
+- [ ] cleanup target 제거 실패 시 source는 남고 Global enrollment는 `deletion-pending`으로 남아 재시도해도 자동 재적용되지 않는다.
+- [ ] source-only 삭제는 Global enrollment를 해제하고 target copy 또는 broken symlink가 남을 수 있음을 알린다. Codex가 이전 skill을 보이면 새 Codex 세션을 열어 target 재탐색 후 사라졌는지 확인한다.
 
 ## 7. Diagnostics와 Analysis
 
