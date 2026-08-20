@@ -202,8 +202,8 @@ npm run package:vsix-candidate
 The **Release VSIX** GitHub Actions workflow validates, packages, and publishes tagged builds. A release tag must match the version in `package.json`; for example:
 
 ```sh
-git tag v0.1.5
-git push origin v0.1.5
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 That workflow publishes the VSIX to the Marketplace and attaches the same artifact to a GitHub Release. A tag with an `a` suffix is build-only and skips publishing; `v0.1.1a` is an example of that convention.
