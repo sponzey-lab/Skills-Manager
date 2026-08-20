@@ -1,7 +1,7 @@
 {
   "name": "sponzey-skills-manager",
   "displayName": "Sponzey Skills Manager",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "Sponzey",
   "private": true,
   "type": "module",
@@ -9,11 +9,11 @@
   "license": "GPL-2.0-only",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Sponzey-com/Sponzey-Skill-Manager.git"
+    "url": "https://github.com/sponzey-lab/Skills-Manager.git"
   },
-  "homepage": "https://github.com/Sponzey-com/Sponzey-Skill-Manager#readme",
+  "homepage": "https://github.com/sponzey-lab/Skills-Manager#readme",
   "bugs": {
-    "url": "https://github.com/Sponzey-com/Sponzey-Skill-Manager/issues"
+    "url": "https://github.com/sponzey-lab/Skills-Manager/issues"
   },
   "categories": [
     "Other"

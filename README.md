@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=Sponzey.sponzey-skills-manager"><img src="https://img.shields.io/visual-studio-marketplace/v/Sponzey.sponzey-skills-manager?style=flat-square&label=VS%20Code%20Marketplace" alt="VS Code Marketplace version"></a>
-  <a href="https://github.com/Sponzey-com/Sponzey-Skill-Manager"><img src="https://img.shields.io/github/stars/Sponzey-com/Sponzey-Skill-Manager?style=flat-square" alt="GitHub stars"></a>
+  <a href="https://github.com/sponzey-lab/Skills-Manager"><img src="https://img.shields.io/github/stars/sponzey-lab/Skills-Manager?style=flat-square" alt="GitHub stars"></a>
   <img src="https://img.shields.io/badge/license-GPL--2.0-6e7781?style=flat-square" alt="GPL-2.0 license">
 </p>
 
@@ -202,15 +202,15 @@ npm run package:vsix-candidate
 The **Release VSIX** GitHub Actions workflow validates, packages, and publishes tagged builds. A release tag must match the version in `package.json`; for example:
 
 ```sh
-git tag v0.2.1
-git push origin v0.2.1
+git tag v0.2.2
+git push origin v0.2.2
 ```
 
 That workflow publishes the VSIX to the Marketplace and attaches the same artifact to a GitHub Release. A tag with an `a` suffix is build-only and skips publishing; `v0.1.1a` is an example of that convention.
 
 </details>
 
-Issues and ideas are welcome in the [GitHub issue tracker](https://github.com/Sponzey-com/Sponzey-Skill-Manager/issues).
+Issues and ideas are welcome in the [GitHub issue tracker](https://github.com/sponzey-lab/Skills-Manager/issues).
 
 ---
 
