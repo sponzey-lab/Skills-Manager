@@ -22,8 +22,8 @@ Sponzey Skills Manager gives those skills a proper home inside VS Code. Your **M
 
 ## At a glance
 
-| Main Repository | Global Skills | Project Skills | Diagnostics |
-| --- | --- | --- | --- |
+| Main Repository     | Global Skills                       | Project Skills                      | Diagnostics                                        |
+| ------------------- | ----------------------------------- | ----------------------------------- | -------------------------------------------------- |
 | The source of truth | Skills available to your AI clients | Skills scoped to the open workspace | Structure, sync, dependency, and security findings |
 
 - Keep the original skill separate from every place it is used.
@@ -119,9 +119,9 @@ Do not choose an agent target such as `~/.agents/skills` or `~/.claude/skills` a
 
 Codex and Claude Code have built-in global and workspace discovery:
 
-| Client | Global target | Project target |
-| --- | --- | --- |
-| Codex | `~/.agents/skills` | `<workspace>/.agents/skills` |
+| Client      | Global target      | Project target               |
+| ----------- | ------------------ | ---------------------------- |
+| Codex       | `~/.agents/skills` | `<workspace>/.agents/skills` |
 | Claude Code | `~/.claude/skills` | `<workspace>/.claude/skills` |
 
 Additional targets can be registered from the view. Recognized clients use their own marks; an unobtrusive generic mark is used when a client has no bundled identity.
@@ -132,16 +132,16 @@ Additional targets can be registered from the view. Recognized clients use their
 
 The core local workflow is implemented and covered by automated architecture, domain, use-case, adapter, integration, manifest, and build checks.
 
-| Area | Status | What is available now |
-| --- | :---: | --- |
-| Source library | ✅ | Create, rename, import, install, export, and delete source skills |
-| Global management | ✅ | Multi-target enrollment, future-target reconciliation, symlink and copy modes |
-| Project management | ✅ | Workspace-aware discovery, apply, remove, update, and mode conversion |
-| Existing skills | ✅ | External discovery plus copy, move, and backup into the Main Repository |
-| Recovery | ✅ | Snapshot listing, comparison, restore, promotion, and deletion |
-| Sync visibility | ✅ | Drift, missing targets, external placements, and broken-link reporting |
-| Safety analysis | ✅ | Bounded static inspection, confirmed/potential findings, coverage reporting, and Critical write guard |
-| Release pipeline | ✅ | Automated test/build gate, VSIX packaging, Marketplace publishing, and GitHub Release workflow |
+| Area               | Status | What is available now                                                                                 |
+| ------------------ | ------ | ----------------------------------------------------------------------------------------------------- |
+| Source library     | ✅      | Create, rename, import, install, export, and delete source skills                                     |
+| Global management  | ✅      | Multi-target enrollment, future-target reconciliation, symlink and copy modes                         |
+| Project management | ✅      | Workspace-aware discovery, apply, remove, update, and mode conversion                                 |
+| Existing skills    | ✅      | External discovery plus copy, move, and backup into the Main Repository                               |
+| Recovery           | ✅      | Snapshot listing, comparison, restore, promotion, and deletion                                        |
+| Sync visibility    | ✅      | Drift, missing targets, external placements, and broken-link reporting                                |
+| Safety analysis    | ✅      | Bounded static inspection, confirmed/potential findings, coverage reporting, and Critical write guard |
+| Release pipeline   | ✅      | Automated test/build gate, VSIX packaging, Marketplace publishing, and GitHub Release workflow        |
 
 Planned follow-up work includes registry discovery, Git-backed team workflows, richer policy packs, and deeper dependency intelligence. These are future directions, not requirements for the current local skill-management workflow.
 
@@ -149,16 +149,16 @@ Planned follow-up work includes registry discovery, Git-backed team workflows, r
 
 Most actions are available from a row's context menu. They are also available from the Command Palette under `Sponzey Skills:`.
 
-| Task | Command |
-| --- | --- |
-| Choose the source library | `Sponzey Skills: Set Main Repository` |
-| Create a skill | `Sponzey Skills: Create Skill` |
+| Task                                | Command                                          |
+| ----------------------------------- | ------------------------------------------------ |
+| Choose the source library           | `Sponzey Skills: Set Main Repository`            |
+| Create a skill                      | `Sponzey Skills: Create Skill`                   |
 | Install from GitHub or a local path | `Sponzey Skills: Install Skill from URL or Path` |
-| Analyze every source | `Sponzey Skills: Analyze All Skills` |
-| Apply globally | `Sponzey Skills: Apply Skill to Global Target` |
-| Apply to the workspace | `Sponzey Skills: Apply Skill to Project Target` |
-| Remove a global enrollment | `Sponzey Skills: Remove Global Skill Enrollment` |
-| Refresh the sidebar | `Sponzey Skills: Refresh Skills` |
+| Analyze every source                | `Sponzey Skills: Analyze All Skills`             |
+| Apply globally                      | `Sponzey Skills: Apply Skill to Global Target`   |
+| Apply to the workspace              | `Sponzey Skills: Apply Skill to Project Target`  |
+| Remove a global enrollment          | `Sponzey Skills: Remove Global Skill Enrollment` |
+| Refresh the sidebar                 | `Sponzey Skills: Refresh Skills`                 |
 
 ## Troubleshooting
 
@@ -202,8 +202,8 @@ npm run package:vsix-candidate
 The **Release VSIX** GitHub Actions workflow validates, packages, and publishes tagged builds. A release tag must match the version in `package.json`; for example:
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 That workflow publishes the VSIX to the Marketplace and attaches the same artifact to a GitHub Release. A tag with an `a` suffix is build-only and skips publishing; `v0.1.1a` is an example of that convention.
